@@ -1,0 +1,47 @@
+# Android Agent
+
+Android 휴대폰 자체를 에이전트의 작업 환경으로 만드는 프로젝트다. 사용자가 원하는 결과를 말하면 폰의 상태를 관찰하고, 허용된 Android 기능과 도구를 실행하고, 결과를 확인하며 작업을 이어가는 것을 목표로 한다.
+
+## 작업 관리
+
+요구사항·설계·진행 상황의 원본은 [GitHub 마일스톤](https://github.com/Yushin-L/android-agent/milestones)과 연결된 [이슈](https://github.com/Yushin-L/android-agent/issues)다. 새로운 작업은 해당 마일스톤의 이슈에서 시작하고, 결정과 완료 증거도 그 이슈에 기록한다. 로컬 docs는 과거 기록으로 보존하며 새 작업 문서를 쌓지 않는다.
+
+| 마일스톤 | 상태 |
+|---|---|
+| [M0 · 제품 방향과 참조 조사](https://github.com/Yushin-L/android-agent/milestone/1) | 완료된 기준선 |
+| [M1 · Android Codex 실행 경로 검증](https://github.com/Yushin-L/android-agent/milestone/2) | 완료된 기준선 |
+| [M2 · 쓰레드·세션 관리와 대화 UI](https://github.com/Yushin-L/android-agent/milestone/3) | 다음 구현 |
+| [M3 · Android 행동 도구 확장](https://github.com/Yushin-L/android-agent/milestone/4) | 후속 작업 |
+| [M4 · 실행 수명과 중단 복구](https://github.com/Yushin-L/android-agent/milestone/5) | 후속 작업 |
+| [M5 · 홈 통합과 배포 범위](https://github.com/Yushin-L/android-agent/milestone/6) | 후속 작업 |
+
+## 현재 합의
+
+- GUI 쓰레드는 여러 Codex 대화 세션을 포함하는 작업 공간이다.
+- GUI에서 쓰레드를 생성·선택하고, 쓰레드 안에서 `/new`·`/resume`으로 대화를 관리한다.
+- 대화 본문·맥락·실행 이력은 Codex가 관리한다. 앱은 GUI 매핑과 화면 상태를 저장한다.
+- 서브에이전트는 사용자의 대화 명령으로 활용하며, 기본 UI에 별도의 관리 화면이나 하위 작업 트리를 두지 않는다.
+- 디자인은 Linear의 차분한 구성, Material 3의 Android 상호작용, 따뜻한 회색·녹색, Pretendard를 기준으로 한다.
+
+자세한 색상·글꼴·화면 구조는 [설계 합의 #9](https://github.com/Yushin-L/android-agent/issues/9)를 따른다. 다음 구현은 [제품 앱 소스·빌드 구조 #10](https://github.com/Yushin-L/android-agent/issues/10)부터 시작한다.
+
+## 검증된 범위
+
+로컬 진단 APK를 통해 Samsung SM-S931N / Android 16에서 Codex 기동, 저장된 ChatGPT 인증을 통한 모델 응답, 배터리 도구 왕복, 동일 Codex 스레드의 후속 대화를 확인했다. [검증 기록 #8](https://github.com/Yushin-L/android-agent/issues/8)에 버전별 결과와 미검증 범위를 보존했다.
+
+이는 제품 UI, 다른 기기 호환성, 셸·code-mode-host, Android 앱의 OS 종료 복구까지 완료됐다는 뜻은 아니다. 닫힌 조사·기록 이슈는 기준선 이관 완료를 뜻하며, 후속 기능은 열린 구현 이슈로 추적한다.
+
+## 저장소 범위
+
+현재 공개 저장소는 프로젝트 안내와 작업 규칙을 담은 초기 구성이다. 진단 앱 소스는 로컬 experiments에 있으므로 이 저장소만으로 아직 APK를 빌드할 수 없다. 제품 소스는 별도 구현 이슈에서 추가한다.
+
+다음 디렉토리는 로컬에 유지하고 Git에 올리지 않는다.
+
+- `deploy/`
+- `docs/` 및 `docx/`
+- `reference/`
+- `experiments/` 및 `experiemtns/`
+
+기존 docs의 문서 9개는 각 마일스톤의 기록 이슈 #1–#9로 이전했다. 서버 절대 경로는 일반화하고, 저장소에 없는 상대 링크는 이슈 링크 또는 로컬 자료 표시로 바꿨다. 참조 저장소 원본 주소·기준 커밋과 실기기 보고서 주요 필드도 해당 이슈에 보존했다. 계정 설정·인증 토큰·서명키·빌드 산출물은 추적하지 않는다.
+
+개발 작업 규칙은 [AGENTS.md](AGENTS.md)를 참고한다.

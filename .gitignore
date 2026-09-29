@@ -1,0 +1,32 @@
+# Local research, diagnostic builds, documents, and deployment assets
+/deploy/
+/docs/
+/docx/
+/reference/
+/experiments/
+/experiemtns/
+
+# Local agent/account configuration
+/.agents/
+/.codex/
+/.aws/
+.env
+.env.*
+!.env.example
+local.properties
+*.keystore
+*.jks
+auth.json
+credentials.json
+
+# Generated outputs and IDE state
+.gradle/
+.idea/
+**/build/
+*.apk
+*.aab
+*.dex
+*.class
+__pycache__/
+*.py[cod]
+.DS_Store

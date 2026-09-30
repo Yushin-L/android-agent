@@ -15,7 +15,7 @@ python3 app/prepare_android_payload.py app/downloads/runtime.tgz
 docker run --rm --network none --user "$(id -u):$(id -g)" -v "$PWD/app:/work" android-agent-builder
 ```
 
-출력: `app/artifacts/android-agent-0.7.0-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
+출력: `app/artifacts/android-agent-0.7.1-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
 런타임 아카이브의 SHA-512를 검사한 뒤 APK용 helper 이름만 동일 길이로 교체한다.
 출처·원본/수정 SHA-256·패치 위치는 `assets/runtime-provenance.json`에 기록된다.
 Codex의 Apache-2.0 고지는 `assets/CODEX-LICENSE`, `CODEX-NOTICE`에 포함된다.

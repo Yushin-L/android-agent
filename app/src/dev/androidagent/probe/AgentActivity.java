@@ -20,7 +20,7 @@ public final class AgentActivity extends Activity {
     private EditText input;
     private TextView status,accountView;
     private Button send,stop;
-    private int bg,surface,ink,muted,accent,onAccent;
+    private int bg,surface,ink,muted,accent,onAccent,errorColor;
     private boolean bound,restoring;
     private final Handler ui=new Handler(Looper.getMainLooper());
     private final Runnable persistDraft=this::saveUi;
@@ -39,7 +39,7 @@ public final class AgentActivity extends Activity {
         if(saved!=null){workspace=saved.getString("workspace","");session=saved.getString("session","");screen=saved.getString("screen","home");}
         boolean dark=(getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES;
         bg=dark?0xff191a18:0xfffaf9f6;surface=dark?0xff252622:0xfff0efeb;ink=dark?0xffecede6:0xff252620;
-        muted=dark?0xffadb0a4:0xff686a61;accent=dark?0xffa5cead:0xff38654a;onAccent=dark?0xff191a18:0xfffaf9f6;
+        muted=dark?0xffadb0a4:0xff686a61;accent=dark?0xffa5cead:0xff38654a;onAccent=dark?0xff191a18:0xfffaf9f6;errorColor=dark?0xffffb4ab:0xffa12d2d;
         try{regular=Typeface.createFromAsset(getAssets(),"fonts/Pretendard-Regular.otf");medium=Typeface.createFromAsset(getAssets(),"fonts/Pretendard-Medium.otf");semibold=Typeface.createFromAsset(getAssets(),"fonts/Pretendard-SemiBold.otf");}catch(Exception ignored){}
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         render();Intent intent=new Intent(this,AgentService.class);startForegroundService(intent);bound=bindService(intent,binding,BIND_AUTO_CREATE);
@@ -48,9 +48,12 @@ public final class AgentActivity extends Activity {
     private LinearLayout column(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);return l;}
     private TextView text(String value,int size){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(ink);t.setTypeface(size>=22?semibold:regular);t.setPadding(0,dp(6),0,dp(6));return t;}
     private Button button(LinearLayout parent,String title,Runnable action){
-        Button b=new Button(this);b.setText(title);b.setTextSize(16);b.setTypeface(medium);b.setTextColor(accent);b.setAllCaps(false);b.setMinHeight(dp(48));
+        Button b=new Button(this);b.setText(title);b.setTextSize(16);b.setTypeface(medium);b.setTextColor(states(muted,accent));b.setBackgroundTintList(states(surface,surface));b.setAllCaps(false);b.setMinHeight(dp(48));b.setMinimumHeight(dp(48));
+        b.setOnFocusChangeListener((v,focused)->{v.setForeground(edgeOutline(focused));});
         b.setOnClickListener(v->action.run());parent.addView(b,new LinearLayout.LayoutParams(-1,-2));return b;
     }
+    private android.content.res.ColorStateList states(int disabled,int enabled){return new android.content.res.ColorStateList(new int[][]{new int[]{-android.R.attr.state_enabled},new int[]{}},new int[]{disabled,enabled});}
+    private android.graphics.drawable.Drawable edgeOutline(boolean focused){GradientDrawable edge=new GradientDrawable();edge.setColor(android.graphics.Color.TRANSPARENT);edge.setCornerRadius(dp(8));if(focused)edge.setStroke(dp(2),accent);return edge;}
     private void render(){
         input=null;messages=null;status=null;accountView=null;scroll=null;shownItems="";shownQuestion="";
         root=column();root.setBackgroundColor(bg);
@@ -107,7 +110,7 @@ public final class AgentActivity extends Activity {
         restoring=false;final int y=position;ScrollView current=scroll;current.post(()->current.scrollTo(0,y));
         input.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){if(!restoring){ui.removeCallbacks(persistDraft);ui.postDelayed(persistDraft,400);}}public void afterTextChanged(Editable e){}});
         LinearLayout controls=new LinearLayout(this);body.addView(controls);send=button(controls,"보내기",this::send);stop=button(controls,"중단",()->{final String target=session;service.submit(()->service.sessions.stop(target),e->{if(e!=null)toast("중단 요청에 실패했습니다");});});
-        send.setLayoutParams(new LinearLayout.LayoutParams(0,-2,1));stop.setLayoutParams(new LinearLayout.LayoutParams(0,-2,1));send.setTextColor(onAccent);send.setBackgroundTintList(android.content.res.ColorStateList.valueOf(accent));refresh();
+        send.setLayoutParams(new LinearLayout.LayoutParams(0,-2,1));stop.setLayoutParams(new LinearLayout.LayoutParams(0,-2,1));send.setTextColor(states(muted,onAccent));send.setBackgroundTintList(states(surface,accent));refresh();
     }
     private void send(){String value=input.getText().toString();if(value.trim().equals("/new")){input.setText("");newSession();return;}if(value.trim().equals("/resume")){input.setText("");resume();return;}if(value.trim().isEmpty())return;
         final String target=session,owner=workspace;send.setEnabled(false);service.submit(()->{service.sessions.send(target,value);JSONObject w=service.store.get(owner);JSONArray entries=w.getJSONArray("sessions");for(int i=0;i<entries.length();i++){JSONObject entry=entries.getJSONObject(i);if(entry.getString("id").equals(target)&&entry.optString("draft").equals(value))service.store.saveUi(owner,target,"",entry.optInt("scrollY"));}},e->{if(e!=null){toast("전송 실패 · 연결 상태와 실행 중인 대화를 확인해 주세요");}else if(target.equals(session)&&input!=null&&input.getText().toString().equals(value)){input.setText("");}refresh();});
@@ -116,14 +119,14 @@ public final class AgentActivity extends Activity {
         if(service==null)return;if(accountView!=null)accountView.setText(service.account);if(!screen.equals("chat")||messages==null)return;
         try{
             boolean busy=service.sessions.busy(session);send.setEnabled(!busy&&!session.isEmpty());stop.setEnabled(busy);
-            String phase=service.sessions.status(session);status.setText(busy?(phase.equals("stopping")?"중단 중…":"응답 작성 중…"):(phase.equals("failed")||phase.equals("error")||phase.equals("disconnected")?"연결 또는 응답 오류 · 다시 시도할 수 있습니다":"메시지를 입력하세요"));
+            String phase=service.sessions.status(session);status.setTextColor(phase.equals("failed")||phase.equals("error")||phase.equals("disconnected")?errorColor:muted);status.setText(busy?(phase.equals("stopping")?"중단 중…":"응답 작성 중…"):(phase.equals("failed")||phase.equals("error")||phase.equals("disconnected")?"연결 또는 응답 오류 · 다시 시도할 수 있습니다":"메시지를 입력하세요"));
             JSONArray items=service.sessions.items(session);String stamp=items.toString();
             if(!stamp.equals(shownItems)){boolean bottom=scroll.getChildAt(0).getHeight()-scroll.getHeight()-scroll.getScrollY()<dp(80);messages.removeAllViews();
                 for(int i=0;i<items.length();i++){JSONObject item=items.getJSONObject(i);String type=item.optString("type"),value="";
                     if(type.equals("agentMessage"))value=item.optString("text");
                     else if(type.equals("userMessage")){JSONArray content=item.optJSONArray("content");if(content!=null)for(int j=0;j<content.length();j++)value+=content.getJSONObject(j).optString("text")+"\n";}
                     else value=(item.optString("tool","도구"))+" · "+(item.optBoolean("success")?"완료":item.optString("status"));
-                    TextView message=text(value.trim(),type.endsWith("Message")?17:14);message.setTextIsSelectable(true);message.setLineSpacing(0,1f);message.setLineHeight(Math.round(27*getResources().getDisplayMetrics().scaledDensity));message.setPadding(dp(12),dp(12),dp(12),dp(12));
+                    TextView message=text(value.trim(),type.endsWith("Message")?17:14);message.setTextIsSelectable(true);message.setLineSpacing(0,1f);message.setLineHeight(Math.round(android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,27,getResources().getDisplayMetrics())));message.setPadding(dp(12),dp(12),dp(12),dp(12));
                     if(type.equals("userMessage")){GradientDrawable shape=new GradientDrawable();shape.setColor(surface);shape.setCornerRadius(dp(12));message.setBackground(shape);}messages.addView(message);
                 }shownItems=stamp;if(bottom)scroll.post(()->{if(scroll!=null)scroll.fullScroll(View.FOCUS_DOWN);});
             }
@@ -136,11 +139,12 @@ public final class AgentActivity extends Activity {
         ScrollView form=new ScrollView(this);form.addView(fields);new AlertDialog.Builder(this).setTitle("입력이 필요합니다").setView(form).setPositiveButton("전달",(d,n)->{try{JSONObject out=new JSONObject();for(int i=0;i<answers.length;i++)out.put(questions.getJSONObject(i).getString("id"),new JSONObject().put("answers",new JSONArray().put(answers[i].getText().toString())));service.answer(q,new JSONObject().put("answers",out));}catch(Exception e){toast("답변 전달 실패");}}).setNegativeButton("취소",(d,n)->{try{service.answer(q,new JSONObject().put("answers",new JSONObject()));}catch(Exception ignored){}}).setCancelable(false).show();
     }
     private void settings(){
+        LinearLayout content=column();ScrollView settingsScroll=new ScrollView(this);settingsScroll.addView(content);body.addView(settingsScroll,new LinearLayout.LayoutParams(-1,-1));body=content;
         button(body,"‹ 쓰레드 목록",()->{screen="home";render();});body.addView(text("설정",22));accountView=text(service.account,17);body.addView(accountView);
         button(body,"ChatGPT 로그인",()->login(false));button(body,"기기 코드로 로그인",()->login(true));
         button(body,"계정 새로고침",()->service.submit(service::refreshAccount,e->{if(e!=null)toast("계정 확인 실패");render();}));
         button(body,"로그아웃",()->service.submit(service::logout,e->{if(e!=null)toast("진행 중인 대화를 마친 뒤 다시 시도해 주세요");render();}));
-        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.7.0\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
+        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.7.1\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
     }
     private void login(boolean device){service.submit(()->service.login(device),e->{if(e!=null){toast("로그인을 시작하지 못했습니다");return;}if(!service.loginCode.isEmpty())new AlertDialog.Builder(this).setTitle("로그인 코드").setMessage(service.loginCode).setPositiveButton("복사",(d,n)->((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("로그인 코드",service.loginCode))).show();try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(service.loginUrl)));}catch(Exception ex){toast("브라우저를 열지 못했습니다");}});}
     private void saveUi(){ui.removeCallbacks(persistDraft);if(service==null||input==null||session.isEmpty())return;try{service.store.saveUi(workspace,session,input.getText().toString(),scroll==null?0:scroll.getScrollY());}catch(Exception e){toast("입력 초안을 저장하지 못했습니다");}}

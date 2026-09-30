@@ -26,13 +26,17 @@ public final class AgentService extends Service implements AppServerConnection.L
     private AppServerConnection connection;
     private AndroidRuntime runtime;
     public WorkspaceStore store;
+    public WorkspaceFiles files;
+    private final Map<String,Integer> fileJobs=new HashMap<>();
+    private final ConcurrentMap<String,String> fileStatus=new ConcurrentHashMap<>();
+    public String fileStatus(String id){return fileStatus.getOrDefault(id, "");}
     public SessionController sessions;
     public volatile String error="",loginUrl="",loginCode="",account="로그인 확인 중";
     private volatile String loginId="";
     private volatile boolean destroyed;
     @Override public void onCreate(){
         super.onCreate();runtime=new AndroidRuntime(this);
-        try {store=new WorkspaceStore(new java.io.File(getFilesDir(),"workspaces.json").toPath());}
+        try {files=new WorkspaceFiles(new java.io.File(getFilesDir(),"workspaces").toPath(),new java.io.File(getCacheDir(),"file-jobs").toPath());store=new WorkspaceStore(new java.io.File(getFilesDir(),"workspaces.json").toPath());}
         catch(Exception e){error="쓰레드 목록을 읽지 못했습니다. 기존 데이터는 보존했습니다.";}
         sessions=new SessionController((method,params)->rpc().call(method,params,45000),runtime.workspace.getAbsolutePath(),this::changed);
         NotificationManager nm=getSystemService(NotificationManager.class);
@@ -56,7 +60,7 @@ public final class AgentService extends Service implements AppServerConnection.L
         if(connection!=null&&!connection.isClosed())return connection;
         if(destroyed)throw new IOException("SERVICE_CLOSED");
         connection=new AppServerConnection(runtime.start(),this);
-        try {connection.call("initialize",new JSONObject().put("clientInfo",new JSONObject().put("name","android_agent").put("version","0.7.5"))
+        try {connection.call("initialize",new JSONObject().put("clientInfo",new JSONObject().put("name","android_agent").put("version","0.8.0"))
             .put("capabilities",new JSONObject().put("experimentalApi",true)),20000);
         connection.notify("initialized",new JSONObject());return connection;
         } catch(Exception e){connection.close();connection=null;throw e;}
@@ -91,21 +95,53 @@ public final class AgentService extends Service implements AppServerConnection.L
     public void setModel(String workspace,String model,String effort) throws Exception {
         ModelSelection.resolve(models(),model,effort);store.setModel(workspace,model,effort);changed();
     }
-    public void sendMessage(String workspace,String session,String text) throws Exception {
+    public void sendMessage(String workspace,String session,String text,JSONArray attachments) throws Exception {
         JSONObject w=store.get(workspace);JSONArray entries=w.getJSONArray("sessions");boolean owned=false;
         for(int i=0;i<entries.length();i++)if(session.equals(entries.getJSONObject(i).getString("id")))owned=true;
         if(!owned)throw new IOException("SESSION_NOT_IN_WORKSPACE");
         JSONObject selection=ModelSelection.resolve(models(),w.optString("model"),w.optString("effort"));
-        sessions.send(session,text,selection);
+        loadSession(session);
+        JSONArray payload=new JSONArray();
+        for(int i=0;i<attachments.length();i++){JSONObject a=attachments.getJSONObject(i);java.nio.file.Path path=files.resolve(workspace,a.getString("path"));if(!java.nio.file.Files.isRegularFile(path))throw new IOException("ATTACHMENT_MISSING");payload.put(new JSONObject(a.toString()).put("absolutePath",imageInput(workspace,path,a.optString("mime"))));}
+        sessions.send(session,text,selection,payload);store.consumeAttachments(workspace,session,attachments);
+    }
+    private String imageInput(String owner,java.nio.file.Path path,String mime)throws Exception{
+        if(!mime.startsWith("image/")||mime.equals("image/jpeg")||mime.equals("image/png")||mime.equals("image/webp")||mime.equals("image/gif"))return path.toString();
+        java.io.File converted=new java.io.File(getCacheDir(),"image-"+java.util.UUID.randomUUID()+".jpg");
+        android.graphics.Bitmap bitmap=android.graphics.ImageDecoder.decodeBitmap(android.graphics.ImageDecoder.createSource(path.toFile()),(decoder,info,source)->{
+            decoder.setAllocator(android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE);int width=info.getSize().getWidth(),height=info.getSize().getHeight();float scale=Math.min(1f,4096f/Math.max(width,height));decoder.setTargetSize(Math.max(1,(int)(width*scale)),Math.max(1,(int)(height*scale)));
+        });
+        try{
+            try(java.io.OutputStream out=new java.io.FileOutputStream(converted)){if(!bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG,90,out))throw new IOException("IMAGE_CONVERSION_FAILED");}finally{bitmap.recycle();}
+            try(java.io.InputStream in=new java.io.FileInputStream(converted)){JSONObject item=files.copyIn(owner,path.getFileName().toString()+".jpg",in,()->destroyed);return files.resolve(owner,item.getString("path")).toString();}
+        }finally{converted.delete();}
     }
     public String createWorkspace(String name) throws Exception {
-        String id=store.create(name);String session=sessions.create();store.attach(id,session);return id;
+        String id=store.create(name);files.root(id);String session=sessions.create(files.root(id).toString());store.attach(id,session);return id;
     }
-    public String newSession(String workspace) throws Exception {store.get(workspace);String id=sessions.create();store.attach(workspace,id);return id;}
-    public void deleteWorkspace(String id) throws Exception {
+    public String newSession(String workspace) throws Exception {store.get(workspace);String id=sessions.create(files.root(workspace).toString());store.attach(workspace,id);return id;}
+    public synchronized void deleteWorkspace(String id) throws Exception {
         JSONArray entries=store.get(id).getJSONArray("sessions");
         for(int i=0;i<entries.length();i++)if(sessions.busy(entries.getJSONObject(i).getString("id")))throw new IOException("WORKSPACE_BUSY");
-        store.delete(id);changed();
+        if(fileJobs.getOrDefault(id,0)>0)throw new IOException("WORKSPACE_BUSY");
+        files.delete(id);store.delete(id);changed();
+    }
+    public void loadSession(String id)throws Exception{String owner=store.owner(id);sessions.directory(id,files.root(owner).toString());sessions.load(id);}
+    private synchronized void beginFiles(String owner)throws Exception{store.get(owner);fileJobs.put(owner,fileJobs.getOrDefault(owner,0)+1);}
+    private synchronized void endFiles(String owner){int n=fileJobs.getOrDefault(owner,1)-1;if(n==0)fileJobs.remove(owner);else fileJobs.put(owner,n);}
+    private JSONObject toolResult(boolean success,JSONObject result)throws Exception{return new JSONObject().put("success",success).put("contentItems",new JSONArray().put(new JSONObject().put("type","inputText").put("text",result.toString())));}
+    public void importFiles(String owner,String id,java.util.List<android.net.Uri> uris,java.util.function.BooleanSupplier cancelled)throws Exception{
+        if(!owner.equals(store.owner(id)))throw new IOException("SESSION_NOT_IN_WORKSPACE");beginFiles(owner);
+        try {for(android.net.Uri uri:uris){
+            if(cancelled.getAsBoolean())throw new IOException("CANCELLED");
+            JSONArray current=store.attachments(owner,id);if(current.length()>=10)throw new IOException("ATTACHMENT_LIMIT");
+            String name="file",mime=getContentResolver().getType(uri);
+            try(android.database.Cursor c=getContentResolver().query(uri,new String[]{android.provider.OpenableColumns.DISPLAY_NAME},null,null,null)){if(c!=null&&c.moveToFirst())name=c.getString(0);}
+            try(java.io.InputStream in=getContentResolver().openInputStream(uri)){
+                if(in==null)throw new IOException("FILE_UNAVAILABLE");JSONObject item=files.copyIn(owner,name,in,cancelled).put("mime",mime==null?WorkspaceProvider.mime(name):mime);
+                store.appendAttachment(owner,id,item);
+            }
+        }}finally{endFiles(owner);}
     }
     public Question question(String session){for(Question q:questions.values())if(q.thread.equals(session))return q;return null;}
     public void answer(Question question,JSONObject response){question.answer.complete(response);changed();}
@@ -122,14 +158,23 @@ public final class AgentService extends Service implements AppServerConnection.L
         }catch(Exception e){error="응답 상태를 읽지 못했습니다. 대화를 다시 열어 주세요.";changed();}
     }
     @Override public JSONObject request(String method,JSONObject params) throws Exception {
-        if(method.equals("item/tool/call"))return sessions.battery(params,runtime::battery);
+        if(method.equals("item/tool/call")){
+            if("android_battery_status".equals(params.optString("tool")))return sessions.battery(params,runtime::battery);
+            sessions.validateTool(params);String id=params.getString("threadId"),turn=params.getString("turnId"),owner=store.owner(id);beginFiles(owner);
+            try {
+                fileStatus.put(id,params.optString("tool").equals("workspace_download")?"파일 다운로드 중… · 중단 버튼으로 취소":"파일 작업 중…");changed();
+                JSONObject result=files.invoke(owner,params.getString("tool"),params.getJSONObject("arguments"),()->sessions.toolCancelled(id,turn));
+                return toolResult(true,result);
+            }catch(Exception e){String code=e.getMessage();if(code==null||!code.matches("[A-Z_0-9]+"))code="FILE_OPERATION_FAILED";return toolResult(false,new JSONObject().put("error",code));}
+            finally{fileStatus.remove(id);endFiles(owner);changed();}
+        }
         String thread=params.optString("threadId");
         if(!sessions.busy(thread))throw new IOException("UNKNOWN_REQUEST_SESSION");
         if(method.equals("item/tool/requestUserInput")){
             Question q=new Question(UUID.randomUUID().toString(),thread,new JSONObject(params.toString()));questions.put(q.key,q);changed();
             try{return q.answer.get(10,TimeUnit.MINUTES);}finally{questions.remove(q.key);changed();}
         }
-        // Shell/file writes are disabled. Never silently grant an unexpected approval.
+        // Native shell/patch writes are disabled; scoped workspace adapters handle file writes. Never silently grant an unexpected approval.
         if(method.equals("item/commandExecution/requestApproval")||method.equals("item/fileChange/requestApproval"))return new JSONObject().put("decision","decline");
         throw new IOException("UNSUPPORTED_SERVER_REQUEST");
     }

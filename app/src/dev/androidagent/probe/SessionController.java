@@ -21,25 +21,32 @@ public final class SessionController {
     private final Changed changed;
     private final Map<String,Session> sessions=new HashMap<>();
     private final String cwd;
+    private final Map<String,String> directories=new HashMap<>();
+    public synchronized void directory(String id,String path){directories.put(id,path);}
+    private synchronized String directory(String id){return directories.getOrDefault(id,cwd);}
     public SessionController(Transport transport,String cwd,Changed changed) {this.transport=transport;this.cwd=cwd;this.changed=changed;}
     public synchronized Session session(String id) {return sessions.computeIfAbsent(id,Session::new);}
-    private JSONObject parameters() throws Exception {
-        return new JSONObject().put("cwd",cwd).put("sandbox","read-only").put("approvalPolicy","untrusted")
+    private JSONObject parameters(String path) throws Exception {
+        return new JSONObject().put("cwd",path).put("sandbox","read-only").put("approvalPolicy","untrusted")
             .put("developerInstructions","You are an assistant running on the user's Android phone. Reply naturally in the user's language. "
-                +"Use android_battery_status for fresh battery state, never invent phone observations. Other phone actions are not available yet. "
+                +"Use android_battery_status for fresh battery state, never invent phone observations. Use available workspace tools for local files and downloads. Paths are relative to the current workspace. Unsupported binary formats require a suitable parser; do not invent their contents. "
                 +"When the user asks to delegate, use available subagent tools and summarize their results in the main conversation. "
-                +"Do not expose internal tool receipts. Do not execute shell commands or modify files.");
+                +"Do not expose internal tool receipts. Do not execute shell commands. Modify files only via available workspace tools. Files saved in this workspace can be opened, shared or exported by the user from the app. Never claim a download or write succeeded without its tool result.");
     }
     public String create() throws Exception {
-        JSONObject p=parameters().put("ephemeral",false).put("dynamicTools",new JSONArray().put(BatteryTool.spec()));
+        return create(cwd);
+    }
+    public String create(String path) throws Exception {
+        JSONArray tools=WorkspaceFiles.specs();tools.put(BatteryTool.spec());
+        JSONObject p=parameters(path).put("ephemeral",false).put("dynamicTools",tools);
         JSONObject thread=transport.call("thread/start",p).getJSONObject("thread");
-        String id=thread.getString("id");
+        String id=thread.getString("id");directory(id,path);
         synchronized(this) {Session s=session(id);hydrate(s,thread);s.loaded=true;}
         changed.changed();return id;
     }
     public void load(String id) throws Exception {
         synchronized(this) {Session s=session(id);if(s.loaded||s.running||s.starting)return;}
-        JSONObject thread=transport.call("thread/resume",parameters().put("threadId",id)).getJSONObject("thread");
+        JSONObject thread=transport.call("thread/resume",parameters(directory(id)).put("threadId",id)).getJSONObject("thread");
         if(!id.equals(thread.getString("id")))throw new IOException("SESSION_MISMATCH");
         synchronized(this) {Session s=session(id);if(!s.running&&!s.starting){hydrate(s,thread);s.loaded=true;}}
         changed.changed();
@@ -59,7 +66,10 @@ public final class SessionController {
     }
     public void send(String id,String text) throws Exception {send(id,text,new JSONObject());}
     public void send(String id,String text,JSONObject selection) throws Exception {
-        if(text.trim().isEmpty()||text.length()>8000)throw new IOException("INVALID_INPUT");
+        send(id,text,selection,new JSONArray());
+    }
+    public void send(String id,String text,JSONObject selection,JSONArray attachments) throws Exception {
+        if((text.trim().isEmpty()&&attachments.length()==0)||text.length()>8000)throw new IOException("INVALID_INPUT");
         if(text.trim().equals("/new")||text.trim().equals("/resume")||text.trim().equals("/model"))throw new IOException("LOCAL_COMMAND_ONLY");
         load(id);
         synchronized(this) {
@@ -71,7 +81,9 @@ public final class SessionController {
         }
         changed.changed();
         try {
-            JSONObject request=new JSONObject().put("threadId",id).put("input",new JSONArray().put(new JSONObject().put("type","text").put("text",text)));
+            JSONArray content=new JSONArray();if(!text.isEmpty())content.put(new JSONObject().put("type","text").put("text",text));
+            for(int i=0;i<attachments.length();i++){JSONObject a=attachments.getJSONObject(i);content.put(new JSONObject().put("type","text").put("text","Attached workspace file: "+a.getString("path")));if(a.optString("mime").startsWith("image/"))content.put(new JSONObject().put("type","localImage").put("path",a.getString("absolutePath")));}
+            JSONObject request=new JSONObject().put("threadId",id).put("cwd",directory(id)).put("input",content);
             if(selection.has("model"))request.put("model",selection.getString("model"));
             if(selection.has("effort"))request.put("effort",selection.getString("effort"));
             JSONObject turn=transport.call("turn/start",request).getJSONObject("turn");
@@ -117,6 +129,12 @@ public final class SessionController {
         }
         changed.changed();
     }
+    public synchronized void validateTool(JSONObject p)throws Exception{
+        Session s=sessions.get(p.optString("threadId"));if(s==null||(!s.starting&&!s.running)||s.status.equals("stopping"))throw new IOException("INACTIVE_TOOL_SESSION");
+        String turn=p.getString("turnId");if(s.turn.isEmpty()&&s.starting)s.turn=turn;
+        if(!s.turn.equals(turn)||s.calls.size()>=32||!s.calls.add(p.getString("callId"))||!p.isNull("namespace"))throw new IOException("INVALID_TOOL_CALL");
+    }
+    public synchronized boolean toolCancelled(String id,String turn){Session s=sessions.get(id);return s==null||(!s.starting&&!s.running)||!s.turn.equals(turn)||s.status.equals("stopping");}
     public JSONObject battery(JSONObject p,BatteryTool.Reader reader) throws Exception {
         synchronized(this) {
             Session s=sessions.get(p.optString("threadId"));

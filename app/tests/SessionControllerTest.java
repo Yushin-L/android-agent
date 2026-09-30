@@ -36,6 +36,9 @@ public class SessionControllerTest {
   JSONObject p=new JSONObject().put("threadId",b).put("turnId","t-"+b).put("callId","call").put("tool","android_battery_status").put("arguments",new JSONObject());
   check(c.battery(p,()->new JSONObject().put("batteryPercent",55).put("charging",false)).getBoolean("success"));
   reject(()->c.battery(p,()->new JSONObject()));
+  c.directory(d,"/workspace/gui-d");w.instant=true;c.send(d,"",new JSONObject(),new JSONArray().put(new JSONObject().put("path","photo.png").put("mime","image/png").put("absolutePath","/workspace/gui-d/photo.png")));
+  check(w.last.getString("cwd").equals("/workspace/gui-d"));check(w.last.getJSONArray("input").getJSONObject(1).getString("type").equals("localImage"));
+  check(w.last.getJSONArray("input").getJSONObject(1).getString("path").equals("/workspace/gui-d/photo.png"));
   c.disconnected();check(!c.busy(b));c.load(b);check(c.items(b).getJSONObject(0).getString("text").equals("Codex history"));
   System.out.println("PASS per-session streaming, stale/child isolation, selected-turn interruption, concurrency limit, early completion, tool deduplication, Codex hydration");
  }

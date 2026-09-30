@@ -73,6 +73,22 @@ public final class WorkspaceStore {
         if(draft.length()>8000) throw new IOException("DRAFT_TOO_LONG");
         mutate(() -> s.put("draft",draft).put("scrollY",Math.max(0,scrollY)));
     }
+    public synchronized JSONArray attachments(String workspace,String id) throws Exception {
+        JSONObject s=session(find(workspace),id);if(s==null)throw new IOException("SESSION_NOT_IN_WORKSPACE");
+        return new JSONArray(s.optJSONArray("attachments")==null?"[]":s.getJSONArray("attachments").toString());
+    }
+    public synchronized void attachments(String workspace,String id,JSONArray values)throws Exception{
+        JSONObject s=session(find(workspace),id);if(s==null)throw new IOException("SESSION_NOT_IN_WORKSPACE");
+        if(values.length()>10)throw new IOException("ATTACHMENT_LIMIT");mutate(()->s.put("attachments",new JSONArray(values.toString())));
+    }
+    public synchronized void appendAttachment(String workspace,String id,JSONObject item)throws Exception{JSONArray a=attachments(workspace,id);a.put(item);attachments(workspace,id,a);}
+    public synchronized void consumeAttachments(String workspace,String id,JSONArray sent)throws Exception{
+        java.util.Set<String> paths=new java.util.HashSet<>();for(int i=0;i<sent.length();i++)paths.add(sent.getJSONObject(i).getString("path"));
+        JSONArray current=attachments(workspace,id),remaining=new JSONArray();for(int i=0;i<current.length();i++)if(!paths.contains(current.getJSONObject(i).getString("path")))remaining.put(current.getJSONObject(i));attachments(workspace,id,remaining);
+    }
+    public synchronized String owner(String id)throws Exception{
+        JSONArray all=data.getJSONArray("workspaces");for(int i=0;i<all.length();i++){JSONObject w=all.getJSONObject(i);if(session(w,id)!=null)return w.getString("id");}throw new IOException("SESSION_NOT_IN_WORKSPACE");
+    }
     private JSONObject find(String id) throws Exception {
         JSONArray a=data.getJSONArray("workspaces");
         for(int i=0;i<a.length();i++) if(id.equals(a.getJSONObject(i).getString("id"))) return a.getJSONObject(i);

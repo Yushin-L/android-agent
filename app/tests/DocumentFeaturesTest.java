@@ -13,6 +13,9 @@ public class DocumentFeaturesTest {
  static void reject(Checked task)throws Exception{try{task.run();throw new AssertionError("accepted unsafe operation");}catch(java.io.IOException expected){}}
  static boolean contains(Node node,Class<?> type){if(type.isInstance(node))return true;for(Node n=node.getFirstChild();n!=null;n=n.getNext())if(contains(n,type))return true;return false;}
  public static void main(String[] args)throws Exception{
+  FeedbackTool.validate(new JSONObject().put("title","버그").put("body","접수 요청 내용").put("category","bug"));
+  reject(()->FeedbackTool.validate(new JSONObject().put("title","").put("body","body").put("category","bug")));
+  reject(()->FeedbackTool.validate(new JSONObject().put("title","title").put("body","body").put("category","bug").put("secret","hidden")));
   String text="# 제목\n\n**굵게** *기울임* ~~취소~~ [링크](https://example.com)\n\n> 인용\n\n1. 첫째\n2. 둘째\n\n| 항목 | 값 |\n| --- | ---: |\n| 가 | 1 |\n\n```java\n<script>not executable</script>\n```\n";
   Node doc=MarkdownDocument.parse(text);for(Class<?> type:new Class<?>[]{Heading.class,StrongEmphasis.class,Emphasis.class,Strikethrough.class,Link.class,BlockQuote.class,OrderedList.class,TableBlock.class,FencedCodeBlock.class})check(contains(doc,type));
   for(int end=1;end<text.length();end++)check(MarkdownDocument.parse(text.substring(0,end))!=null);

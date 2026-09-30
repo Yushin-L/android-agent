@@ -15,7 +15,7 @@ public final class AgentService extends Service implements AppServerConnection.L
     public interface Result {void done(Exception error);}
     public static final class Question {
         public final String key,thread;public final JSONObject params;
-        public boolean approval;
+        public boolean approval,feedback;
         final CompletableFuture<JSONObject> answer=new CompletableFuture<>();
         Question(String key,String thread,JSONObject params){this.key=key;this.thread=thread;this.params=params;}
     }
@@ -100,7 +100,7 @@ public final class AgentService extends Service implements AppServerConnection.L
         checkRunning();
         if(connection!=null&&!connection.isClosed())return connection;
         connection=new AppServerConnection(runtime.start(),this);
-        try {connection.call("initialize",new JSONObject().put("clientInfo",new JSONObject().put("name","android_agent").put("version","0.10.2"))
+        try {connection.call("initialize",new JSONObject().put("clientInfo",new JSONObject().put("name","android_agent").put("version","0.11.0"))
             .put("capabilities",new JSONObject().put("experimentalApi",true)),20000);
         connection.notify("initialized",new JSONObject());probeShell(connection);return connection;
         } catch(Exception e){connection.close();connection=null;throw e;}
@@ -260,6 +260,17 @@ public final class AgentService extends Service implements AppServerConnection.L
         if(method.equals("item/tool/call")){
             if("android_battery_status".equals(params.optString("tool")))return sessions.battery(params,runtime::battery);
             sessions.validateTool(params);String id=params.getString("threadId"),turn=params.getString("turnId"),owner=store.owner(id);
+            if(params.optString("tool").endsWith("_app_feedback")){
+                try{
+                    String tool=params.getString("tool");JSONObject args=params.getJSONObject("arguments");FeedbackTool.validate(tool,args);FeedbackClient client=new FeedbackClient(this);
+                    if(!client.connected())return toolResult(false,new JSONObject().put("error","FEEDBACK_NOT_CONNECTED_OPEN_SETTINGS"));
+                    if(tool.equals("list_app_feedback")||tool.equals("read_app_feedback"))return toolResult(true,client.invoke(tool,args,""));
+                    Question q=new Question(UUID.randomUUID().toString(),id,new JSONObject().put("reason",(tool.equals("submit_app_feedback")?args.getString("title"):"피드백 #"+args.getLong("feedbackId")+"에 답변")+"\n\n"+args.getString("body")));q.approval=true;q.feedback=true;questions.put(q.key,q);changed();
+                    try{JSONObject answer=q.answer.get(10,TimeUnit.MINUTES);if(!"accept".equals(answer.optString("decision"))||sessions.toolCancelled(id,turn))return toolResult(false,new JSONObject().put("error","FEEDBACK_CANCELLED"));}
+                    finally{questions.remove(q.key);changed();}
+                    return toolResult(true,client.invoke(tool,args,UUID.randomUUID().toString()));
+                }catch(Exception e){String code=e.getMessage();if(code==null||!code.matches("[A-Z_0-9]+"))code="FEEDBACK_DELIVERY_UNCONFIRMED_DO_NOT_RETRY";return toolResult(false,new JSONObject().put("error",code));}
+            }
             if(journal==null)throw new IOException("EXECUTION_JOURNAL_UNAVAILABLE");
             journal.tool(id,turn,params.getString("callId"),params.getString("tool"),false);beginFiles(owner);
             try {

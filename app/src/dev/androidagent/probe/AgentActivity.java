@@ -343,6 +343,10 @@ public final class AgentActivity extends Activity {
     }
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);fileUi.result(request,result,data);}
     private void showQuestion(AgentService.Question q)throws Exception{
+        if(q.feedback){
+            TextView content=text(q.params.optString("reason")+"\n\n비공개 피드백 서버로 전송합니다. 새 접수에는 앱 버전·Android 버전이 포함됩니다. 대화·파일·로그는 자동 첨부하지 않습니다.",16);content.setTextIsSelectable(true);ScrollView view=new ScrollView(this);view.addView(content);
+            approvalDialog=new AlertDialog.Builder(this).setTitle("피드백 보내기").setView(dialogContent(view)).setNegativeButton("취소",(d,n)->approval(q,"decline")).setPositiveButton("전송",(d,n)->approval(q,"accept")).setCancelable(false).create();approvalDialog.setOnDismissListener(d->approvalDialog=null);approvalDialog.show();return;
+        }
         if(q.approval){
             String detail=q.params.optString("reason","이 작업을 실행할까요?")+"\n\n"+q.params.optString("command",q.params.optString("grantRoot","파일 변경"))+"\n\n작업 위치: "+q.params.optString("cwd","")+"\n"+q.params.optString("changesPreview","");
             TextView content=text(detail,16);content.setTextIsSelectable(true);ScrollView view=new ScrollView(this);view.addView(content);
@@ -373,10 +377,19 @@ public final class AgentActivity extends Activity {
         });
         body.addView(text(getSystemService(NotificationManager.class).areNotificationsEnabled()?"작업 알림 · 허용됨":"작업 완료와 승인 요청 알림이 꺼져 있습니다",14));
         button(body,"알림 설정",()->startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,getPackageName())));
+        FeedbackClient feedback=new FeedbackClient(this);
+        body.addView(text(feedback.connected()?"앱 피드백 · 연결됨":"앱 피드백 · 연결 필요",17));
+        body.addView(text("서버 연결 후 새 대화에서 ‘피드백 접수해 줘’, ‘진행 상황 확인해 줘’라고 요청하세요. 비공개 서버에서 개발 측 질문을 읽고 답변할 수 있습니다.",14));
+        button(body,feedback.connected()?"피드백 서버 연결 해제":"피드백 서버 연결",()->{
+            if(feedback.connected()){service.submit(feedback::disconnect,e->{toast(e==null?"연결을 해제했습니다":"연결 해제 실패 · 다시 시도해 주세요");render();});return;}
+            EditText code=new EditText(this);code.setSingleLine(true);code.setHint("1회용 연결 코드");code.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);code.setTypeface(fileFont());
+            AlertDialog dialog=new AlertDialog.Builder(this).setTitle("피드백 서버 연결").setView(dialogContent(code)).setNegativeButton("취소",null).setPositiveButton("연결",null).create();dialog.show();
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String value=code.getText().toString();dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);service.submit(()->feedback.pair(value),e->{if(isDestroyed())return;if(e==null){dialog.dismiss();toast("연결했습니다. 새 대화에서 피드백을 요청하세요");render();}else{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);code.setError("연결 실패 · 코드 또는 네트워크를 확인해 주세요");}});});
+        });
         button(body,"ChatGPT 로그인",()->login(false));button(body,"기기 코드로 로그인",()->login(true));
         button(body,"계정 새로고침",()->service.submit(service::refreshAccount,e->{if(e!=null)toast("계정 확인 실패");render();}));
         button(body,"로그아웃",()->service.submit(service::logout,e->{if(e!=null)toast("진행 중인 대화를 마친 뒤 다시 시도해 주세요");render();}));
-        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.10.2\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\",\"shellProbe\":\""+service.shellProbe+"\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
+        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.11.0\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\",\"shellProbe\":\""+service.shellProbe+"\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
     }
     private void login(boolean device){service.submit(()->service.login(device),e->{if(e!=null){toast("로그인을 시작하지 못했습니다");return;}if(!service.loginCode.isEmpty())new AlertDialog.Builder(this).setTitle("로그인 코드").setMessage(service.loginCode).setPositiveButton("복사",(d,n)->((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("로그인 코드",service.loginCode))).show();try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(service.loginUrl)));}catch(Exception ex){toast("브라우저를 열지 못했습니다");}});}
     private void rememberLocation(){if(!workspace.isEmpty())getSharedPreferences("navigation",0).edit().putString("workspace",workspace).putString("session",session).apply();}

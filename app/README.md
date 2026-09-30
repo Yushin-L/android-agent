@@ -15,7 +15,7 @@ python3 app/prepare_android_payload.py app/downloads/runtime.tgz
 docker run --rm --network none --user "$(id -u):$(id -g)" -v "$PWD/app:/work" android-agent-builder
 ```
 
-출력: `app/artifacts/android-agent-0.9.2-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
+출력: `app/artifacts/android-agent-0.9.3-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
 런타임 아카이브의 SHA-512를 검사한 뒤 APK용 helper 이름만 동일 길이로 교체한다.
 출처·원본/수정 SHA-256·패치 위치는 `assets/runtime-provenance.json`에 기록된다.
 Codex의 Apache-2.0 고지는 `assets/CODEX-LICENSE`, `CODEX-NOTICE`에 포함된다.
@@ -98,3 +98,6 @@ APK 컴파일·서명 및 정적 검토 범위이며 실기기 레이아웃·큰
 새 쓰레드 제목과 입력 영역은 24dp 좌우 여백으로 맞췄다. 채팅 입력란을 탭하거나 키보드로 채팅 영역이 줄어들면 최근 메시지를 스크롤해 보여준다. 메시지 자동 스크롤은 입력 포커스를 빼앗는 fullScroll 대신 좌표 이동을 사용한다. 과거 대화를 읽을 때 계속 바닥에 고정하지 않는다.
 
 APK 빌드·리소스 링크·서명과 정적 검토 범위다. 실기기 키보드 전환/글꼴/모서리/큰 글씨/TalkBack은 별도 확인이 필요하다. 기록: [#35](https://github.com/Yushin-L/android-agent/issues/35).
+
+
+0.9.3은 우상단 메뉴의 명령어 표기를 제거하고 48dp 행 기준·16sp 글꼴·16dp 좌우 여백으로 정돈한다. 채팅의 `/new`, `/resume`, `/model` 명령은 유지한다. APK 빌드 검증과 실기기 시각 확인을 구분하며 기록은 #35를 따른다.

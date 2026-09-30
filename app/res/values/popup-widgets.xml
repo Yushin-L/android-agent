@@ -30,4 +30,15 @@
         <item name="android:textSize">17sp</item>
         <item name="android:textColor">@color/dialog_ink</item>
     </style>
+    <style name="AgentCompactMenu">
+        <item name="android:listPreferredItemHeightSmall">48dp</item>
+        <item name="android:listPreferredItemHeight">48dp</item>
+        <item name="android:listPreferredItemPaddingStart">16dp</item>
+        <item name="android:listPreferredItemPaddingEnd">16dp</item>
+        <item name="android:textAppearanceLargePopupMenu">@style/AgentCompactMenuText</item>
+        <item name="android:textAppearanceSmallPopupMenu">@style/AgentCompactMenuText</item>
+    </style>
+    <style name="AgentCompactMenuText" parent="AgentPopupText">
+        <item name="android:textSize">16sp</item>
+    </style>
 </resources>

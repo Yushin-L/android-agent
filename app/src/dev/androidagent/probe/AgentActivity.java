@@ -16,6 +16,7 @@ public final class AgentActivity extends Activity {
     private AgentService service;
     private FileUi fileUi;
     private AlertDialog approvalDialog;
+    private final java.util.Set<String> expandedCommands=new java.util.HashSet<>();
     private LinearLayout attachmentRows;
     private String shownAttachments="";
     private String workspace="",session="",screen="home",shownItems="",shownQuestion="";
@@ -39,7 +40,7 @@ public final class AgentActivity extends Activity {
         public void onServiceDisconnected(ComponentName name){service=null;render();}
     };
     @Override public void onCreate(Bundle saved){
-        super.onCreate(saved);fileUi=new FileUi(this,saved,this::refresh);
+        super.onCreate(saved);if(saved!=null){java.util.ArrayList<String> expanded=saved.getStringArrayList("expandedCommands");if(expanded!=null)expandedCommands.addAll(expanded);}fileUi=new FileUi(this,saved,this::refresh);
         if(saved!=null){workspace=saved.getString("workspace","");session=saved.getString("session","");screen=saved.getString("screen","home");}
         boolean dark=(getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES;
         bg=dark?0xff151c18:0xfff8faf9;surface=dark?0xff202C25:0xffedf3f0;ink=dark?0xffe9f2ec:0xff18221D;
@@ -224,16 +225,17 @@ public final class AgentActivity extends Activity {
             JSONArray items=service.sessions.items(session);String stamp=items.toString();
             if(!stamp.equals(shownItems)){boolean bottom=scroll.getChildAt(0).getHeight()-scroll.getHeight()-scroll.getScrollY()<dp(80);messages.removeAllViews();
                 for(int i=0;i<items.length();i++){JSONObject item=items.getJSONObject(i);String type=item.optString("type"),value="";
+                    if(type.equals("commandExecution")){commandCard(item);continue;}
                     if(type.equals("agentMessage"))value=item.optString("text");
                     else if(type.equals("userMessage")){JSONArray content=item.optJSONArray("content");if(content!=null)for(int j=0;j<content.length();j++)value+=content.getJSONObject(j).optString("text")+"\n";}
-                    else if(type.equals("commandExecution"))value="명령 실행 · "+item.optString("status")+"\n"+item.optString("command")+"\n"+item.optString("aggregatedOutput")+(item.has("exitCode")&&!item.isNull("exitCode")?"\n종료 코드: "+item.optInt("exitCode"):"");
+
                     else if(type.equals("fileChange"))value="파일 변경 · "+item.optString("status");
                     else if(type.equals("imageGeneration"))value="이미지 생성 · "+item.optString("status")+(item.has("fileError")?"\n"+item.optString("fileError"):"");
                     else value=(item.optString("tool","도구"))+" · "+(item.optBoolean("success")?"완료":item.optString("status"));
                     TextView message=text(value.trim(),type.endsWith("Message")?17:14);message.setTextIsSelectable(true);message.setLineSpacing(0,1f);message.setLineHeight(Math.round(android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,27,getResources().getDisplayMetrics())));message.setPadding(dp(12),dp(12),dp(12),dp(12));
                     if(type.equals("userMessage")){GradientDrawable shape=new GradientDrawable();shape.setColor(surface);shape.setCornerRadius(dp(12));message.setBackground(shape);}messages.addView(message);
                     if(type.equals("imageGeneration")&&item.optJSONObject("workspaceFile")!=null){JSONObject file=item.getJSONObject("workspaceFile");String path=file.getString("path"),owner=workspace;button(messages,"이미지 · "+path,()->fileUi.actions(owner,path));}
-                    if(type.equals("commandExecution")||type.equals("fileChange")){String owner=workspace;button(messages,"쓰레드 파일 보기",()->fileUi.browse(owner,""));}
+                    if(type.equals("fileChange")){String owner=workspace;button(messages,"쓰레드 파일 보기",()->fileUi.browse(owner,""));}
                     if(type.equals("dynamicToolCall")&&item.optBoolean("success")){
                         JSONArray outputs=item.optJSONArray("contentItems");if(outputs!=null)for(int j=0;j<outputs.length();j++){try{JSONObject file=new JSONObject(outputs.getJSONObject(j).optString("text"));if(file.has("path")&&file.has("size")&&!file.optBoolean("directory")){String path=file.getString("path"),owner=workspace;button(messages,"파일 · "+path+" · "+FileUi.size(file.getLong("size")),()->fileUi.actions(owner,path));}}catch(Exception ignored){}}
                     }
@@ -241,6 +243,26 @@ public final class AgentActivity extends Activity {
             }
             AgentService.Question q=service.question(session);if(q==null&&approvalDialog!=null){approvalDialog.dismiss();approvalDialog=null;}if(q!=null&&!q.key.equals(shownQuestion)){shownQuestion=q.key;showQuestion(q);}
         }catch(Exception e){status.setText("대화 표시 오류 · 다시 열어 주세요");}
+    }
+    private void commandCard(JSONObject item)throws Exception{
+        final String key=session+":"+item.getString("id"),owner=workspace;
+        String state=item.optString("status");
+        final String label="명령 실행 · "+(state.equals("completed")?"완료":state.equals("failed")?"실패":state.equals("declined")?"거절됨":state.equals("inProgress")?"실행 중":state);
+        LinearLayout card=column(),details=column();messages.addView(card);
+        Button toggle=button(card,"",()->{});toggle.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);toggle.setTextSize(14);
+        card.addView(details);
+        Runnable update=()->{
+            boolean expanded=expandedCommands.contains(key);toggle.setText(label+(expanded?" · 접기":" · 펼치기"));
+            toggle.setContentDescription(label+(expanded?", 펼쳐짐, 누르면 접기":", 접힘, 누르면 펼치기"));
+            if(Build.VERSION.SDK_INT>=30)toggle.setStateDescription(expanded?"펼쳐짐":"접힘");
+            details.removeAllViews();details.setVisibility(expanded?View.VISIBLE:View.GONE);
+            if(expanded){
+                String value=item.optString("command")+"\n\n"+item.optString("aggregatedOutput")+(item.has("exitCode")&&!item.isNull("exitCode")?"\n종료 코드: "+item.optInt("exitCode"):"");
+                TextView output=text(value.trim(),14);output.setTextIsSelectable(true);output.setPadding(dp(12),dp(8),dp(12),dp(12));details.addView(output);
+                button(details,"쓰레드 파일 보기",()->fileUi.browse(owner,""));
+            }
+        };
+        toggle.setOnClickListener(v->{if(!expandedCommands.remove(key))expandedCommands.add(key);update.run();});update.run();
     }
     private void refreshAttachments()throws Exception{
         if(attachmentRows==null)return;JSONArray files=service.store.attachments(workspace,session);String stamp=files.toString();if(stamp.equals(shownAttachments))return;shownAttachments=stamp;attachmentRows.removeAllViews();
@@ -272,12 +294,12 @@ public final class AgentActivity extends Activity {
         button(body,"ChatGPT 로그인",()->login(false));button(body,"기기 코드로 로그인",()->login(true));
         button(body,"계정 새로고침",()->service.submit(service::refreshAccount,e->{if(e!=null)toast("계정 확인 실패");render();}));
         button(body,"로그아웃",()->service.submit(service::logout,e->{if(e!=null)toast("진행 중인 대화를 마친 뒤 다시 시도해 주세요");render();}));
-        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.8.1\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\",\"shellProbe\":\""+service.shellProbe+"\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
+        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.8.2\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\",\"shellProbe\":\""+service.shellProbe+"\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
     }
     private void login(boolean device){service.submit(()->service.login(device),e->{if(e!=null){toast("로그인을 시작하지 못했습니다");return;}if(!service.loginCode.isEmpty())new AlertDialog.Builder(this).setTitle("로그인 코드").setMessage(service.loginCode).setPositiveButton("복사",(d,n)->((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("로그인 코드",service.loginCode))).show();try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(service.loginUrl)));}catch(Exception ex){toast("브라우저를 열지 못했습니다");}});}
     private void saveUi(){ui.removeCallbacks(persistDraft);if(service==null||input==null||session.isEmpty())return;try{service.store.saveUi(workspace,session,input.getText().toString(),scroll==null?0:scroll.getScrollY());}catch(Exception e){toast("입력 초안을 저장하지 못했습니다");}}
     private void toast(String value){Toast.makeText(this,value,Toast.LENGTH_SHORT).show();}
-    @Override protected void onSaveInstanceState(Bundle state){saveUi();state.putString("workspace",workspace);state.putString("session",session);state.putString("screen",screen);fileUi.save(state);super.onSaveInstanceState(state);}
+    @Override protected void onSaveInstanceState(Bundle state){saveUi();state.putString("workspace",workspace);state.putString("session",session);state.putString("screen",screen);state.putStringArrayList("expandedCommands",new java.util.ArrayList<>(expandedCommands));fileUi.save(state);super.onSaveInstanceState(state);}
     @Override public void onBackPressed(){if(!screen.equals("home")){saveUi();screen="home";render();}else super.onBackPressed();}
     @Override protected void onPause(){saveUi();super.onPause();}
     @Override protected void onDestroy(){ui.removeCallbacks(persistDraft);if(service!=null)service.unobserve(refresh);if(bound)unbindService(binding);super.onDestroy();}

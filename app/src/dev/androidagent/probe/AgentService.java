@@ -64,7 +64,7 @@ public final class AgentService extends Service implements AppServerConnection.L
         if(connection!=null&&!connection.isClosed())return connection;
         if(destroyed)throw new IOException("SERVICE_CLOSED");
         connection=new AppServerConnection(runtime.start(),this);
-        try {connection.call("initialize",new JSONObject().put("clientInfo",new JSONObject().put("name","android_agent").put("version","0.8.1"))
+        try {connection.call("initialize",new JSONObject().put("clientInfo",new JSONObject().put("name","android_agent").put("version","0.8.2"))
             .put("capabilities",new JSONObject().put("experimentalApi",true)),20000);
         connection.notify("initialized",new JSONObject());probeShell(connection);return connection;
         } catch(Exception e){connection.close();connection=null;throw e;}

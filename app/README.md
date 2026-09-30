@@ -15,7 +15,7 @@ python3 app/prepare_android_payload.py app/downloads/runtime.tgz
 docker run --rm --network none --user "$(id -u):$(id -g)" -v "$PWD/app:/work" android-agent-builder
 ```
 
-출력: `app/artifacts/android-agent-0.8.1-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
+출력: `app/artifacts/android-agent-0.8.2-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
 런타임 아카이브의 SHA-512를 검사한 뒤 APK용 helper 이름만 동일 길이로 교체한다.
 출처·원본/수정 SHA-256·패치 위치는 `assets/runtime-provenance.json`에 기록된다.
 Codex의 Apache-2.0 고지는 `assets/CODEX-LICENSE`, `CODEX-NOTICE`에 포함된다.
@@ -65,3 +65,7 @@ Android 앱 UID의 접근 범위에서 실행한다. 참조 런타임의 플랫�
 `imageGeneration.savedPath`를 보존하고 생성 완료 시 해당 Codex 세션의 `CODEX_HOME/generated_images/<session>/`에서 쓰레드 폴더로 사본을 만든다. 원본을 보존하고 재개 시 같은 파일을 중복 생성하지 않는다. 경로 부재·실패·다른 세션 경로·심볼릭 링크·충돌은 오류로 표시한다. 명령 실행·파일 변경·생성 이미지 결과는 채팅에 표시되며 파일 메뉴와 연결된다. 이미 저장된 과거 생성 이미지도 대화 재개 시 경로가 유효하면 가져온다.
 
 서버 검증에는 모델/계정 호출 없이 실제 Linux App Server `command/exec`의 생성·복사·이동 및 파일 바이트 검증을 포함한다. 이 테스트만 Docker `--network none`을 외부 sandbox로 지정하며 앱 정책은 `workspace-write`를 유지한다. Android 실기기 실행은 자동 점검 및 후속 사용자 사용 결과로 확인해야 한다.
+
+## 0.8.2: 명령 출력 접기·펼치기
+
+명령 실행은 기본적으로 상태 헤더만 표시한다. 탭하면 명령·출력·종료 코드·파일 메뉴가 나타난다. 세션/항목 ID별 펼침 상태는 화면 갱신·쓰레드 이동·회전에서 유지한다. 실행 승인 화면은 변경하지 않는다. 설계·검증 기록: [#33](https://github.com/Yushin-L/android-agent/issues/33).

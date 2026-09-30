@@ -56,7 +56,7 @@ public final class AgentService extends Service implements AppServerConnection.L
         if(connection!=null&&!connection.isClosed())return connection;
         if(destroyed)throw new IOException("SERVICE_CLOSED");
         connection=new AppServerConnection(runtime.start(),this);
-        try {connection.call("initialize",new JSONObject().put("clientInfo",new JSONObject().put("name","android_agent").put("version","0.7.3"))
+        try {connection.call("initialize",new JSONObject().put("clientInfo",new JSONObject().put("name","android_agent").put("version","0.7.4"))
             .put("capabilities",new JSONObject().put("experimentalApi",true)),20000);
         connection.notify("initialized",new JSONObject());return connection;
         } catch(Exception e){connection.close();connection=null;throw e;}
@@ -76,6 +76,27 @@ public final class AgentService extends Service implements AppServerConnection.L
         JSONArray all=store.list();
         for(int i=0;i<all.length();i++){JSONArray ids=all.getJSONObject(i).getJSONArray("sessions");for(int j=0;j<ids.length();j++)if(sessions.busy(ids.getJSONObject(j).getString("id")))throw new IOException("ACTIVE_TURNS");}
         rpc().call("account/logout",new JSONObject(),15000);loginUrl="";loginCode="";loginId="";refreshAccount();
+    }
+    public JSONArray models() throws Exception {
+        JSONArray result=new JSONArray();String cursor="";Set<String> seen=new HashSet<>();
+        do {
+            JSONObject params=new JSONObject().put("limit",100);if(!cursor.isEmpty())params.put("cursor",cursor);
+            JSONObject page=rpc().call("model/list",params,30000);JSONArray entries=page.getJSONArray("data");
+            for(int i=0;i<entries.length();i++)if(!entries.getJSONObject(i).optBoolean("hidden"))result.put(entries.getJSONObject(i));
+            cursor=page.isNull("nextCursor")?"":page.optString("nextCursor");
+            if(!cursor.isEmpty()&&!seen.add(cursor))throw new IOException("MODEL_CURSOR_LOOP");
+        }while(!cursor.isEmpty());
+        return result;
+    }
+    public void setModel(String workspace,String model,String effort) throws Exception {
+        ModelSelection.resolve(models(),model,effort);store.setModel(workspace,model,effort);changed();
+    }
+    public void sendMessage(String workspace,String session,String text) throws Exception {
+        JSONObject w=store.get(workspace);JSONArray entries=w.getJSONArray("sessions");boolean owned=false;
+        for(int i=0;i<entries.length();i++)if(session.equals(entries.getJSONObject(i).getString("id")))owned=true;
+        if(!owned)throw new IOException("SESSION_NOT_IN_WORKSPACE");
+        JSONObject selection=ModelSelection.resolve(models(),w.optString("model"),w.optString("effort"));
+        sessions.send(session,text,selection);
     }
     public String createWorkspace(String name) throws Exception {
         String id=store.create(name);String session=sessions.create();store.attach(id,session);return id;

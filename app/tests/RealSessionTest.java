@@ -30,7 +30,7 @@ public class RealSessionTest {
   String id;
   try(Runtime runtime=new Runtime(root,home,binary)){
    if(!runtime.connection.call("account/read",new JSONObject(),10000).isNull("account"))throw new AssertionError("account not isolated");
-   id=runtime.controller.create();runtime.controller.send(id,"offline test message");
+   id=runtime.controller.create();JSONArray models=runtime.connection.call("model/list",new JSONObject().put("limit",100),10000).getJSONArray("data");runtime.controller.send(id,"offline test message",ModelSelection.resolve(models,"",""));
    long deadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(20);
    boolean interrupted=false;
    while(runtime.controller.busy(id)&&System.nanoTime()<deadline){

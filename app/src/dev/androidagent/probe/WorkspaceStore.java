@@ -57,6 +57,11 @@ public final class WorkspaceStore {
             w.put("activeSession",session);
         });
     }
+    public synchronized void setModel(String workspace,String model,String effort) throws Exception {
+        JSONObject w=find(workspace);
+        if(model==null||effort==null||model.length()>200||effort.length()>40||(model.isEmpty()&&!effort.isEmpty()))throw new IOException("INVALID_MODEL_SELECTION");
+        mutate(() -> w.put("model",model).put("effort",effort));
+    }
     public synchronized void select(String workspace,String session) throws Exception {
         JSONObject w=find(workspace);
         if (session(w,session)==null) throw new IOException("SESSION_NOT_IN_WORKSPACE");

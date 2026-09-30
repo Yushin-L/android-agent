@@ -57,9 +57,10 @@ public final class SessionController {
         if(type.equals("userMessage")||type.equals("agentMessage")||type.equals("dynamicToolCall")||type.equals("mcpToolCall"))
             s.items.put(item.getString("id"),new JSONObject(item.toString()));
     }
-    public void send(String id,String text) throws Exception {
+    public void send(String id,String text) throws Exception {send(id,text,new JSONObject());}
+    public void send(String id,String text,JSONObject selection) throws Exception {
         if(text.trim().isEmpty()||text.length()>8000)throw new IOException("INVALID_INPUT");
-        if(text.trim().equals("/new")||text.trim().equals("/resume"))throw new IOException("LOCAL_COMMAND_ONLY");
+        if(text.trim().equals("/new")||text.trim().equals("/resume")||text.trim().equals("/model"))throw new IOException("LOCAL_COMMAND_ONLY");
         load(id);
         synchronized(this) {
             Session s=session(id);
@@ -70,8 +71,10 @@ public final class SessionController {
         }
         changed.changed();
         try {
-            JSONObject turn=transport.call("turn/start",new JSONObject().put("threadId",id).put("input",
-                new JSONArray().put(new JSONObject().put("type","text").put("text",text)))).getJSONObject("turn");
+            JSONObject request=new JSONObject().put("threadId",id).put("input",new JSONArray().put(new JSONObject().put("type","text").put("text",text)));
+            if(selection.has("model"))request.put("model",selection.getString("model"));
+            if(selection.has("effort"))request.put("effort",selection.getString("effort"));
+            JSONObject turn=transport.call("turn/start",request).getJSONObject("turn");
             synchronized(this) {
                 Session s=session(id);String tid=turn.getString("id");
                 if(!s.turn.isEmpty()&&!s.turn.equals(tid))throw new IOException("TURN_MISMATCH");

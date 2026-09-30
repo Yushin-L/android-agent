@@ -18,7 +18,7 @@ public final class AgentActivity extends Activity {
     private LinearLayout root,body,messages,suggestions;
     private ScrollView scroll;
     private EditText input;
-    private TextView status,accountView;
+    private TextView status,accountView,modelView;
     private ImageButton send,stop;
     private int bg,surface,ink,muted,accent,onAccent,errorColor;
     private boolean bound,restoring;
@@ -78,7 +78,7 @@ public final class AgentActivity extends Activity {
         @Override public int getOpacity(){return android.graphics.PixelFormat.TRANSLUCENT;}
     }
     private void render(){
-        input=null;suggestions=null;messages=null;status=null;accountView=null;scroll=null;shownItems="";shownQuestion="";
+        input=null;suggestions=null;messages=null;status=null;accountView=null;modelView=null;scroll=null;shownItems="";shownQuestion="";
         root=column();root.setBackgroundColor(bg);
         root.setOnApplyWindowInsetsListener((view,insets)->{
             if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.ime());root.setPadding(bars.left,bars.top,bars.right,bars.bottom);}
@@ -119,11 +119,42 @@ public final class AgentActivity extends Activity {
                 }).show();
         }catch(Exception e){toast("쓰레드를 찾지 못했습니다");}
     }
+    private String modelLabel(){
+        try{JSONObject w=service.store.get(workspace);String model=w.optString("model"),effort=w.optString("effort");return (model.isEmpty()?"Codex 기본 모델":model)+" · "+(effort.isEmpty()?"기본 강도":effort);}
+        catch(Exception e){return "모델 설정";}
+    }
+    private void chooseModel(){
+        final String owner=workspace;final JSONArray[] catalog={null};toast("모델 목록을 불러오는 중");
+        service.submit(()->catalog[0]=service.models(),e->{
+            if(e!=null){toast("모델 목록을 불러오지 못했습니다. 연결을 확인해 주세요");return;}
+            if(!owner.equals(workspace)||!screen.equals("chat")||isFinishing()||isDestroyed())return;
+            try{
+                JSONArray list=catalog[0];String[] labels=new String[list.length()+1];labels[0]="Codex 기본 모델 · 기본 추론 강도";
+                String selected=service.store.get(owner).optString("model");int checked=selected.isEmpty()?0:-1;
+                for(int i=0;i<list.length();i++){JSONObject item=list.getJSONObject(i);String id=item.getString("model");labels[i+1]=item.optString("displayName",id)+(item.optBoolean("isDefault")?" · 기본":"");if(id.equals(selected))checked=i+1;}
+                new AlertDialog.Builder(this).setTitle("이 쓰레드의 모델").setSingleChoiceItems(labels,checked,(dialog,n)->{
+                    dialog.dismiss();if(n==0){saveModel(owner,"","");return;}
+                    try{chooseEffort(owner,list.getJSONObject(n-1));}catch(Exception ex){toast("모델 설정을 읽지 못했습니다");}
+                }).setNegativeButton("취소",null).show();
+            }catch(Exception ex){toast("쓰레드를 찾지 못했습니다");}
+        });
+    }
+    private void chooseEffort(String owner,JSONObject model)throws Exception{
+        final String id=model.getString("model");JSONArray efforts=model.optJSONArray("supportedReasoningEfforts");
+        if(efforts==null||efforts.length()==0){toast("이 모델의 추론 설정을 확인할 수 없습니다");return;}
+        String[] labels=new String[efforts.length()+1],values=new String[efforts.length()+1];values[0]="";labels[0]="모델 기본값 · "+model.optString("defaultReasoningEffort");
+        JSONObject w=service.store.get(owner);String selected=id.equals(w.optString("model"))?w.optString("effort"):"";int checked=0;
+        for(int i=0;i<efforts.length();i++){values[i+1]=efforts.getJSONObject(i).getString("reasoningEffort");labels[i+1]=values[i+1];if(selected.equals(values[i+1]))checked=i+1;}
+        new AlertDialog.Builder(this).setTitle("추론 강도 · "+model.optString("displayName",id)).setSingleChoiceItems(labels,checked,(dialog,n)->{dialog.dismiss();saveModel(owner,id,values[n]);}).setNegativeButton("취소",null).show();
+    }
+    private void saveModel(String owner,String model,String effort){
+        service.submit(()->service.setModel(owner,model,effort),e->{if(e!=null){toast("설정하지 못했습니다. 모델 목록을 다시 확인해 주세요");return;}toast("이 쓰레드의 다음 메시지부터 적용됩니다");refresh();});
+    }
     private void completeCommand(){
         if(suggestions==null||input==null)return;
         suggestions.removeAllViews();String value=input.getText().toString();
         if(value.startsWith("/")){
-            String[] commands={"/new","/resume"},labels={"새 대화 시작","이전 대화 이어가기"};
+            String[] commands={"/new","/resume","/model"},labels={"새 대화 시작","이전 대화 이어가기","모델·추론 강도 선택"};
             for(int i=0;i<commands.length;i++){final String command=commands[i];if(command.startsWith(value)&&!command.equals(value)){
                 Button choice=button(suggestions,command+"  ·  "+labels[i],()->{input.setText(command);input.setSelection(command.length());input.requestFocus();});choice.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
             }}
@@ -149,9 +180,9 @@ public final class AgentActivity extends Activity {
     private void chat()throws Exception{
         LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);body.addView(toolbar);
         iconButton(toolbar,"쓰레드 목록","list",()->{saveUi();screen="home";render();});
-        TextView title=text(service.store.get(workspace).getString("name"),18);title.setTypeface(semibold);title.setSingleLine(true);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(dp(8),0,dp(8),0);toolbar.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        TextView title=text(service.store.get(workspace).getString("name"),18);title.setTypeface(semibold);title.setSingleLine(true);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(dp(8),0,dp(8),0);LinearLayout heading=column();heading.addView(title);modelView=text(modelLabel(),13);modelView.setTextColor(muted);modelView.setPadding(dp(8),0,dp(8),0);modelView.setSingleLine(true);modelView.setEllipsize(android.text.TextUtils.TruncateAt.END);heading.addView(modelView);toolbar.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
         ImageButton menu=iconButton(toolbar,"대화 메뉴","more",()->{});
-        menu.setOnClickListener(v->{PopupMenu popup=new PopupMenu(this,menu);popup.getMenu().add(0,1,0,"새 대화 · /new");popup.getMenu().add(0,2,1,"이전 대화 · /resume");popup.getMenu().add(0,3,2,"쓰레드 삭제");popup.setOnMenuItemClickListener(item->{if(item.getItemId()==1)newSession();else if(item.getItemId()==2)resume();else deleteWorkspace(workspace);return true;});popup.show();});
+        menu.setOnClickListener(v->{PopupMenu popup=new PopupMenu(this,menu);popup.getMenu().add(0,1,0,"새 대화 · /new");popup.getMenu().add(0,2,1,"이전 대화 · /resume");popup.getMenu().add(0,4,2,"모델 설정 · /model");popup.getMenu().add(0,3,3,"쓰레드 삭제");popup.setOnMenuItemClickListener(item->{if(item.getItemId()==1)newSession();else if(item.getItemId()==2)resume();else if(item.getItemId()==4)chooseModel();else deleteWorkspace(workspace);return true;});popup.show();});
         status=text("대화를 불러오는 중",14);status.setTextColor(muted);status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);body.addView(status);
         scroll=new ScrollView(this);messages=column();scroll.addView(messages);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         suggestions=column();suggestions.setVisibility(View.GONE);body.addView(suggestions);
@@ -166,12 +197,13 @@ public final class AgentActivity extends Activity {
         stop=iconButton(controls,"응답 중단","stop",()->{final String target=session;service.submit(()->service.sessions.stop(target),e->{if(e!=null)toast("중단 요청에 실패했습니다");});});
         GradientDrawable sendSurface=new GradientDrawable();sendSurface.setCornerRadius(dp(24));sendSurface.setColor(states(surface,accent));send.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf((onAccent&0x00ffffff)|0x33000000),sendSurface,null));send.setImageTintList(states(muted,onAccent));refresh();
     }
-    private void send(){String value=input.getText().toString();if(value.trim().equals("/new")){input.setText("");newSession();return;}if(value.trim().equals("/resume")){input.setText("");resume();return;}if(value.trim().isEmpty())return;
-        final String target=session,owner=workspace;send.setEnabled(false);service.submit(()->{service.store.get(owner);service.sessions.send(target,value);JSONObject w=service.store.get(owner);JSONArray entries=w.getJSONArray("sessions");for(int i=0;i<entries.length();i++){JSONObject entry=entries.getJSONObject(i);if(entry.getString("id").equals(target)&&entry.optString("draft").equals(value))service.store.saveUi(owner,target,"",entry.optInt("scrollY"));}},e->{if(e!=null){toast("전송 실패 · 연결 상태와 실행 중인 대화를 확인해 주세요");}else if(target.equals(session)&&input!=null&&input.getText().toString().equals(value)){input.setText("");}refresh();});
+    private void send(){String value=input.getText().toString();if(value.trim().equals("/new")){input.setText("");newSession();return;}if(value.trim().equals("/resume")){input.setText("");resume();return;}if(value.trim().equals("/model")){input.setText("");chooseModel();return;}if(value.trim().isEmpty())return;
+        final String target=session,owner=workspace;send.setEnabled(false);service.submit(()->{service.sendMessage(owner,target,value);JSONObject w=service.store.get(owner);JSONArray entries=w.getJSONArray("sessions");for(int i=0;i<entries.length();i++){JSONObject entry=entries.getJSONObject(i);if(entry.getString("id").equals(target)&&entry.optString("draft").equals(value))service.store.saveUi(owner,target,"",entry.optInt("scrollY"));}},e->{if(e!=null){toast("MODEL_UNAVAILABLE".equals(e.getMessage())||"EFFORT_UNAVAILABLE".equals(e.getMessage())?"/model에서 사용할 수 있는 모델·추론 강도를 다시 선택해 주세요":"전송 실패 · 연결 상태와 실행 중인 대화를 확인해 주세요");}else if(target.equals(session)&&input!=null&&input.getText().toString().equals(value)){input.setText("");}refresh();});
     }
     private void refresh(){
         if(service==null)return;if(accountView!=null)accountView.setText(service.account);if(!screen.equals("chat")||messages==null)return;
         try{
+            if(modelView!=null)modelView.setText(modelLabel());
             boolean busy=service.sessions.busy(session);send.setEnabled(!busy&&!session.isEmpty());stop.setEnabled(busy);send.setVisibility(busy?View.GONE:View.VISIBLE);stop.setVisibility(busy?View.VISIBLE:View.GONE);
             String phase=service.sessions.status(session);status.setTextColor(phase.equals("failed")||phase.equals("error")||phase.equals("disconnected")?errorColor:muted);status.setText(busy?(phase.equals("stopping")?"중단 중…":"응답 작성 중…"):(phase.equals("failed")||phase.equals("error")||phase.equals("disconnected")?"연결 또는 응답 오류 · 다시 시도할 수 있습니다":"메시지를 입력하세요"));
             boolean failed=phase.equals("failed")||phase.equals("error")||phase.equals("disconnected");status.setVisibility(busy||failed?View.VISIBLE:View.GONE);
@@ -199,7 +231,7 @@ public final class AgentActivity extends Activity {
         button(body,"ChatGPT 로그인",()->login(false));button(body,"기기 코드로 로그인",()->login(true));
         button(body,"계정 새로고침",()->service.submit(service::refreshAccount,e->{if(e!=null)toast("계정 확인 실패");render();}));
         button(body,"로그아웃",()->service.submit(service::logout,e->{if(e!=null)toast("진행 중인 대화를 마친 뒤 다시 시도해 주세요");render();}));
-        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.7.3\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
+        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.7.4\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
     }
     private void login(boolean device){service.submit(()->service.login(device),e->{if(e!=null){toast("로그인을 시작하지 못했습니다");return;}if(!service.loginCode.isEmpty())new AlertDialog.Builder(this).setTitle("로그인 코드").setMessage(service.loginCode).setPositiveButton("복사",(d,n)->((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("로그인 코드",service.loginCode))).show();try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(service.loginUrl)));}catch(Exception ex){toast("브라우저를 열지 못했습니다");}});}
     private void saveUi(){ui.removeCallbacks(persistDraft);if(service==null||input==null||session.isEmpty())return;try{service.store.saveUi(workspace,session,input.getText().toString(),scroll==null?0:scroll.getScrollY());}catch(Exception e){toast("입력 초안을 저장하지 못했습니다");}}

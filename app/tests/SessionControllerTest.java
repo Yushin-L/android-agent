@@ -4,13 +4,13 @@ import java.util.*;
 
 public class SessionControllerTest {
  static class Wire implements SessionController.Transport {
-  SessionController controller;int next=0;boolean instant;String stopped="";List<String> prompts=new ArrayList<>();
+  SessionController controller;int next=0;boolean instant;String stopped="";JSONObject last;List<String> prompts=new ArrayList<>();
   public JSONObject call(String method,JSONObject p)throws Exception {
    if(method.equals("thread/start"))return new JSONObject().put("thread",new JSONObject().put("id","s"+(++next)).put("turns",new JSONArray()));
    String id=p.getString("threadId");
    if(method.equals("thread/resume"))return new JSONObject().put("thread",new JSONObject().put("id",id).put("turns",new JSONArray().put(new JSONObject().put("items",new JSONArray().put(new JSONObject().put("id","old").put("type","agentMessage").put("text","Codex history"))))));
    if(method.equals("turn/interrupt")){stopped=id+":"+p.getString("turnId");return new JSONObject();}
-   prompts.add(p.getJSONArray("input").getJSONObject(0).getString("text"));
+   last=new JSONObject(p.toString());prompts.add(p.getJSONArray("input").getJSONObject(0).getString("text"));
    JSONObject turn=new JSONObject().put("id","t-"+id).put("status",instant?"completed":"inProgress");
    controller.notification("turn/started",new JSONObject().put("threadId",id).put("turn",turn));
    if(instant)controller.notification("turn/completed",new JSONObject().put("threadId",id).put("turn",turn));
@@ -31,7 +31,8 @@ public class SessionControllerTest {
   c.stop(a);check(w.stopped.equals(a+":t-"+a));check(c.busy(b));
   c.notification("turn/completed",new JSONObject().put("threadId",a).put("turn",new JSONObject().put("id","t-"+a).put("status","interrupted")));
   check(!c.busy(a));check(c.busy(b));
-  w.instant=true;c.send(d,"fast");check(!c.busy(d));check(c.status(d).equals("completed"));
+  w.instant=true;c.send(d,"fast",new JSONObject().put("model","model-b").put("effort","high"));check(w.last.getString("model").equals("model-b"));check(w.last.getString("effort").equals("high"));check(!c.busy(d));check(c.status(d).equals("completed"));
+  c.send(d,"default reset",new JSONObject().put("model","model-a").put("effort","medium"));check(w.last.getString("model").equals("model-a"));reject(()->c.send(d,"/model"));
   JSONObject p=new JSONObject().put("threadId",b).put("turnId","t-"+b).put("callId","call").put("tool","android_battery_status").put("arguments",new JSONObject());
   check(c.battery(p,()->new JSONObject().put("batteryPercent",55).put("charging",false)).getBoolean("success"));
   reject(()->c.battery(p,()->new JSONObject()));

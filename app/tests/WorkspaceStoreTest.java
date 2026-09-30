@@ -32,6 +32,14 @@ public class WorkspaceStoreTest {
             check(w.getJSONArray("sessions").getJSONObject(0).getInt("scrollY")==120);
             w.put("name","external mutation");check(restored.get(a).getString("name").equals("여행 계획"));
             restored.attach(a,"session-1");check(restored.get(a).getJSONArray("sessions").length()==2);
+            restored.setModel(a,"model-a","high");
+            WorkspaceStore configured=new WorkspaceStore(file);
+            check(configured.get(a).getString("model").equals("model-a"));
+            check(configured.get(a).getString("effort").equals("high"));
+            check(configured.get(b).optString("model").isEmpty());
+            configured.attach(a,"new-session");configured.select(a,"session-1");
+            check(configured.get(a).getString("model").equals("model-a"));
+            configured.setModel(a,"","");check(new WorkspaceStore(file).get(a).optString("model").isEmpty());
             restored.delete(a);
             check(restored.list().length()==1);
             check(new WorkspaceStore(file).get(b).getString("activeSession").equals("session-3"));

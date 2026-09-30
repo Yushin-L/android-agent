@@ -19,7 +19,7 @@ public final class AppServerConnection implements AutoCloseable {
     private final AtomicLong sequence=new AtomicLong();
     private final ConcurrentMap<Long,CompletableFuture<JSONObject>> pending=new ConcurrentHashMap<>();
     private final AtomicBoolean closed=new AtomicBoolean();
-    private final ExecutorService requests=new ThreadPoolExecutor(1,4,30,TimeUnit.SECONDS,
+    private final ExecutorService requests=new ThreadPoolExecutor(4,4,30,TimeUnit.SECONDS,
         new ArrayBlockingQueue<Runnable>(64), runnable -> {Thread t=new Thread(runnable,"codex-request");t.setDaemon(true);return t;},
         new ThreadPoolExecutor.AbortPolicy());
     public AppServerConnection(Process process,Listener listener) {

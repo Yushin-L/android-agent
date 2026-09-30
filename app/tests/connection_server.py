@@ -19,6 +19,14 @@ for line in sys.stdin:
     elif msg.get('id') == 'server-request-1':
         send({'method': 'turn/completed', 'params': {'threadId': 'thread-a', 'turn': {'id': 'turn-a', 'status': 'completed'}}})
         send({'id': waiting[0]['id'], 'result': msg['result']})
+    elif method == 'overlap':
+        overlap = msg['id']
+        send({'id': 'question', 'method': 'question', 'params': {}})
+        send({'id': 'battery', 'method': 'battery', 'params': {}})
+    elif msg.get('id') == 'question':
+        send({'id': overlap, 'result': msg['result']})
+    elif msg.get('id') == 'battery':
+        pass
     elif method == 'failure':
         send({'id': msg['id'], 'error': {'code': -32603, 'message': 'PRIVATE_TOKEN_NOT_FOR_UI'}})
     elif method == 'exit':

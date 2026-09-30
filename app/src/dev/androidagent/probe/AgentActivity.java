@@ -75,6 +75,8 @@ public final class AgentActivity extends Activity {
         super.onNewIntent(intent);saveUi();setIntent(intent);notificationSession=intent.getStringExtra("session");
         if(service!=null){restoreLocation();render();if(!session.isEmpty())loadSession();}
     }
+    int fileColor(String role){switch(role){case "background":return bg;case "surface":return surface;case "muted":return muted;case "accent":return accent;default:return ink;}}
+    Typeface fileFont(){return regular;}
     private int dp(float n){return Math.round(n*getResources().getDisplayMetrics().density);}
     private LinearLayout column(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);return l;}
     private TextView text(String value,int size){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(ink);t.setTypeface(size>=22?semibold:regular);t.setPadding(0,dp(6),0,dp(6));return t;}
@@ -335,7 +337,7 @@ public final class AgentActivity extends Activity {
         button(body,"ChatGPT 로그인",()->login(false));button(body,"기기 코드로 로그인",()->login(true));
         button(body,"계정 새로고침",()->service.submit(service::refreshAccount,e->{if(e!=null)toast("계정 확인 실패");render();}));
         button(body,"로그아웃",()->service.submit(service::logout,e->{if(e!=null)toast("진행 중인 대화를 마친 뒤 다시 시도해 주세요");render();}));
-        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.9.0\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\",\"shellProbe\":\""+service.shellProbe+"\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
+        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.9.1\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\",\"shellProbe\":\""+service.shellProbe+"\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
     }
     private void login(boolean device){service.submit(()->service.login(device),e->{if(e!=null){toast("로그인을 시작하지 못했습니다");return;}if(!service.loginCode.isEmpty())new AlertDialog.Builder(this).setTitle("로그인 코드").setMessage(service.loginCode).setPositiveButton("복사",(d,n)->((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("로그인 코드",service.loginCode))).show();try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(service.loginUrl)));}catch(Exception ex){toast("브라우저를 열지 못했습니다");}});}
     private void rememberLocation(){if(!workspace.isEmpty())getSharedPreferences("navigation",0).edit().putString("workspace",workspace).putString("session",session).apply();}
@@ -345,5 +347,5 @@ public final class AgentActivity extends Activity {
     @Override public void onBackPressed(){if(!screen.equals("home")){saveUi();screen="home";render();}else super.onBackPressed();}
     @Override protected void onResume(){super.onResume();if(service!=null&&screen.equals("settings"))render();}
     @Override protected void onPause(){saveUi();super.onPause();}
-    @Override protected void onDestroy(){ui.removeCallbacks(persistDraft);if(service!=null)service.unobserve(refresh);if(bound)unbindService(binding);super.onDestroy();}
+    @Override protected void onDestroy(){fileUi.destroy();ui.removeCallbacks(persistDraft);if(service!=null)service.unobserve(refresh);if(bound)unbindService(binding);super.onDestroy();}
 }

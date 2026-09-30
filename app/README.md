@@ -15,7 +15,7 @@ python3 app/prepare_android_payload.py app/downloads/runtime.tgz
 docker run --rm --network none --user "$(id -u):$(id -g)" -v "$PWD/app:/work" android-agent-builder
 ```
 
-출력: `app/artifacts/android-agent-0.9.0-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
+출력: `app/artifacts/android-agent-0.9.1-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
 런타임 아카이브의 SHA-512를 검사한 뒤 APK용 helper 이름만 동일 길이로 교체한다.
 출처·원본/수정 SHA-256·패치 위치는 `assets/runtime-provenance.json`에 기록된다.
 Codex의 Apache-2.0 고지는 `assets/CODEX-LICENSE`, `CODEX-NOTICE`에 포함된다.
@@ -82,3 +82,10 @@ START_STICKY와 부팅/업데이트 수신기는 켜 둔 서비스를 복원한�
 실행 전 원자적 저널에 세션·턴·도구 식별자 및 상태만 기록한다. 프롬프트·명령·인증은 저널에 기록하지 않는다. 재생성 시 Codex 기록을 조회하며 프롬프트/도구를 자동 재실행하지 않는다. 미완료 기록은 결과 미상으로 표시하고 사용자가 기록을 확인한 뒤 새 요청을 보낸다. 도구 반환 기록은 외부 부작용의 정확히 한 번 수행을 보장하지 않는다. 마지막 GUI 쓰레드와 대화 선택도 복원한다.
 
 `ExecutionJournalTest`는 원자적 저장 실패·오래된 이벤트·완료 후 늦은 ACK·결과 미상 복원을 검사한다. `RealRecoveryTest`는 별도의 인증 없는 Linux Codex 자식 프로세스를 실행 중 강제 종료한 뒤, 재시작 후 read/resume이 새 턴을 만들지 않는지 검사한다. Android의 화면 꺼짐·최근 앱 제거·재부팅·OS 앱 종료와 삼성 배터리 정책 검증은 실기기 확인 전까지 미완료다. 설계와 증거는 [#20](https://github.com/Yushin-L/android-agent/issues/20)에 기록한다.
+
+
+## 0.9.1: 쓰레드 파일 탐색기
+
+쓰레드 파일은 경로 단계와 상위 폴더 이동을 갖춘 넓은 탐색 화면으로 표시한다. 폴더 우선 이름순 정렬, 크기순 정렬, 현재 폴더 이름 검색, 새 폴더 생성·새로고침을 제공한다. 파일 탭은 미리보기/열기, 더보기는 공유·폰에 저장 메뉴다. 종류 아이콘과 이름·크기를 분리하며 기존 색상과 글꼴을 재사용한다. 뒤로가기는 상위 폴더, 파일 홈에서는 대화로 돌아간다. 회전 시 현재 폴더·검색·정렬·목록 위치를 복원한다. 최대 1,000개 항목 표시 한계는 화면에 안내한다.
+
+APK 컴파일·서명 및 정적 검토 범위이며 실기기 레이아웃·큰 글씨·TalkBack 검증은 별도다. 설계·증거: [#34](https://github.com/Yushin-L/android-agent/issues/34).

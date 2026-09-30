@@ -19,11 +19,12 @@ final class FileUi {
     private AgentService service;
     private final Runnable changed;
     private String owner="",session="",exportOwner="",exportPath="";
+    private FileBrowser browser;private Bundle browserState;private int browserGeneration;
     private int pendingRequest;private Intent pendingData;
     private static final int PHOTOS=70,DOCUMENTS=71,EXPORT=72;
-    FileUi(AgentActivity activity,Bundle saved,Runnable changed){this.activity=activity;this.changed=changed;if(saved!=null){owner=saved.getString("fileOwner","");session=saved.getString("fileSession","");exportOwner=saved.getString("exportOwner","");exportPath=saved.getString("exportPath","");}}
-    void bind(AgentService service){this.service=service;if(pendingData!=null){Intent data=pendingData;pendingData=null;result(pendingRequest,Activity.RESULT_OK,data);}}
-    void save(Bundle b){b.putString("fileOwner",owner);b.putString("fileSession",session);b.putString("exportOwner",exportOwner);b.putString("exportPath",exportPath);}
+    FileUi(AgentActivity activity,Bundle saved,Runnable changed){this.activity=activity;this.changed=changed;if(saved!=null){browserState=saved.getBundle("fileBrowser");owner=saved.getString("fileOwner","");session=saved.getString("fileSession","");exportOwner=saved.getString("exportOwner","");exportPath=saved.getString("exportPath","");}}
+    void bind(AgentService service){this.service=service;if(browserState!=null){Bundle restore=browserState;browserState=null;showBrowser(restore.getString("owner"),restore.getString("directory",""),restore);}if(pendingData!=null){Intent data=pendingData;pendingData=null;result(pendingRequest,Activity.RESULT_OK,data);}}
+    void save(Bundle b){if(browser!=null&&browser.showing())b.putBundle("fileBrowser",browser.save());b.putString("fileOwner",owner);b.putString("fileSession",session);b.putString("exportOwner",exportOwner);b.putString("exportPath",exportPath);}
     private void toast(String value){if(!activity.isDestroyed())Toast.makeText(activity,value,Toast.LENGTH_LONG).show();}
     void choose(String workspace,String target){
         new AlertDialog.Builder(activity).setTitle("첨부").setItems(new String[]{"갤러리에서 사진 선택","파일 선택"},(d,n)->{
@@ -45,15 +46,14 @@ final class FileUi {
         service.submit(()->service.importFiles(workspace,target,uris,cancelled::get),e->{if(!activity.isDestroyed())progress.dismiss();if(activity.isDestroyed())return;if(e!=null)toast("가져오기를 완료하지 못했습니다. 파일당 50MB·최대 10개이며, 이미 가져온 파일은 유지됩니다.");changed.run();});
     }
     private AlertDialog progress(String label,AtomicBoolean cancelled){AlertDialog d=new AlertDialog.Builder(activity).setMessage(label).setNegativeButton("취소",(v,n)->cancelled.set(true)).setCancelable(false).create();d.show();return d;}
-    void browse(String workspace,String directory){
-        final JSONArray[] result={null};service.submit(()->{service.store.get(workspace);result[0]=service.files.list(workspace,directory);},e->{
-            if(activity.isDestroyed())return;if(e!=null){toast("파일 목록을 읽지 못했습니다");return;}
-            try{JSONArray files=result[0];String[] labels=new String[files.length()];for(int i=0;i<labels.length;i++){JSONObject file=files.getJSONObject(i);labels[i]=(file.optBoolean("directory")?"폴더 · ":"")+file.getString("path")+(file.optBoolean("directory")?"":" · "+size(file.getLong("size")));}
-                new AlertDialog.Builder(activity).setTitle(directory.isEmpty()?"쓰레드 파일":directory).setItems(labels,(d,n)->{try{JSONObject file=files.getJSONObject(n);if(file.optBoolean("directory"))browse(workspace,file.getString("path"));else actions(workspace,file.getString("path"));}catch(Exception ex){toast("파일을 열지 못했습니다");}}).setNegativeButton("닫기",null).show();if(labels.length==0)toast("아직 파일이 없습니다");
-            }catch(Exception ex){toast("파일 목록을 읽지 못했습니다");}
-        });
+    void browse(String workspace,String directory){showBrowser(workspace,directory,null);}
+    private void showBrowser(String workspace,String directory,Bundle saved){
+        final int request=++browserGeneration;if(browser!=null)browser.close();
+        try{browser=new FileBrowser(activity,service,workspace,directory,saved,(w,p)->preview(w,p,WorkspaceProvider.mime(p),()->request==browserGeneration&&browser!=null&&browser.showing()),this::actions);browser.show();}
+        catch(Exception e){toast("쓰레드 파일을 열지 못했습니다");}
     }
-    static String size(long bytes){return bytes>=1024*1024?String.format(Locale.ROOT,"%.1f MB",bytes/1048576.0):String.format(Locale.ROOT,"%.1f KB",bytes/1024.0);}
+    void destroy(){browserGeneration++;if(browser!=null)browser.close();}
+    static String size(long bytes){return bytes<1024?bytes+" B":bytes>=1024*1024?String.format(Locale.ROOT,"%.1f MB",bytes/1048576.0):String.format(Locale.ROOT,"%.1f KB",bytes/1024.0);}
     void actions(String workspace,String path){
         String mime=WorkspaceProvider.mime(path);boolean media=mime.startsWith("image/")||mime.startsWith("video/");
         List<String> labels=new ArrayList<>(Arrays.asList("열기 / 미리보기","공유","다른 이름으로 저장","다운로드에 저장"));if(media)labels.add("갤러리에 저장");
@@ -67,10 +67,11 @@ final class FileUi {
         Uri uri=WorkspaceProvider.uri(workspace,path);Intent intent=new Intent(share?Intent.ACTION_SEND:Intent.ACTION_VIEW).setDataAndType(share?null:uri,mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);intent.setClipData(ClipData.newRawUri("파일",uri));if(share)intent.putExtra(Intent.EXTRA_STREAM,uri);
         try{activity.startActivity(Intent.createChooser(intent,share?"파일 공유":"파일 열기"));}catch(ActivityNotFoundException e){toast("이 파일을 열 수 있는 앱이 없습니다");}
     }
-    private void preview(String workspace,String path,String mime){
+    private void preview(String workspace,String path,String mime){preview(workspace,path,mime,()->true);}
+    private void preview(String workspace,String path,String mime,java.util.function.BooleanSupplier visible){
         boolean image=mime.startsWith("image/"),text=mime.startsWith("text/")||path.endsWith(".md")||path.endsWith(".json")||path.endsWith(".csv");if(!image&&!text){open(workspace,path,mime,false);return;}
         final Object[] value={null};service.submit(()->{service.store.get(workspace);Path file=service.files.resolve(workspace,path);if(image){android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();options.inJustDecodeBounds=true;android.graphics.BitmapFactory.decodeFile(file.toString(),options);options.inSampleSize=1;while(Math.max(options.outWidth,options.outHeight)/options.inSampleSize>1600)options.inSampleSize*=2;options.inJustDecodeBounds=false;value[0]=android.graphics.BitmapFactory.decodeFile(file.toString(),options);if(value[0]==null)throw new IOException("PREVIEW_UNAVAILABLE");}else value[0]=service.files.read(workspace,path);},e->{
-            if(activity.isDestroyed())return;if(e!=null){toast("미리보기를 지원하지 않습니다. 다른 앱으로 엽니다.");open(workspace,path,mime,false);return;}View view;
+            if(activity.isDestroyed()||!visible.getAsBoolean())return;if(e!=null){toast("미리보기를 지원하지 않습니다. 다른 앱으로 엽니다.");open(workspace,path,mime,false);return;}View view;
             if(image){ImageView picture=new ImageView(activity);picture.setAdjustViewBounds(true);picture.setImageBitmap((android.graphics.Bitmap)value[0]);view=picture;}else{TextView content=new TextView(activity);content.setText((String)value[0]);content.setTextSize(17);content.setTextIsSelectable(true);content.setPadding(24,16,24,16);ScrollView scroll=new ScrollView(activity);scroll.addView(content);view=scroll;}
             new AlertDialog.Builder(activity).setTitle(new File(path).getName()).setView(view).setPositiveButton("닫기",null).setNeutralButton("다른 앱으로 열기",(d,n)->open(workspace,path,mime,false)).show();
         });

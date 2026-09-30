@@ -56,7 +56,7 @@ public final class AgentService extends Service implements AppServerConnection.L
         if(connection!=null&&!connection.isClosed())return connection;
         if(destroyed)throw new IOException("SERVICE_CLOSED");
         connection=new AppServerConnection(runtime.start(),this);
-        try {connection.call("initialize",new JSONObject().put("clientInfo",new JSONObject().put("name","android_agent").put("version","0.7.2"))
+        try {connection.call("initialize",new JSONObject().put("clientInfo",new JSONObject().put("name","android_agent").put("version","0.7.3"))
             .put("capabilities",new JSONObject().put("experimentalApi",true)),20000);
         connection.notify("initialized",new JSONObject());return connection;
         } catch(Exception e){connection.close();connection=null;throw e;}
@@ -80,7 +80,12 @@ public final class AgentService extends Service implements AppServerConnection.L
     public String createWorkspace(String name) throws Exception {
         String id=store.create(name);String session=sessions.create();store.attach(id,session);return id;
     }
-    public String newSession(String workspace) throws Exception {String id=sessions.create();store.attach(workspace,id);return id;}
+    public String newSession(String workspace) throws Exception {store.get(workspace);String id=sessions.create();store.attach(workspace,id);return id;}
+    public void deleteWorkspace(String id) throws Exception {
+        JSONArray entries=store.get(id).getJSONArray("sessions");
+        for(int i=0;i<entries.length();i++)if(sessions.busy(entries.getJSONObject(i).getString("id")))throw new IOException("WORKSPACE_BUSY");
+        store.delete(id);changed();
+    }
     public Question question(String session){for(Question q:questions.values())if(q.thread.equals(session))return q;return null;}
     public void answer(Question question,JSONObject response){question.answer.complete(response);changed();}
     @Override public void notification(String method,JSONObject params){

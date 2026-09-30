@@ -32,6 +32,17 @@ public class WorkspaceStoreTest {
             check(w.getJSONArray("sessions").getJSONObject(0).getInt("scrollY")==120);
             w.put("name","external mutation");check(restored.get(a).getString("name").equals("여행 계획"));
             restored.attach(a,"session-1");check(restored.get(a).getJSONArray("sessions").length()==2);
+            restored.delete(a);
+            check(restored.list().length()==1);
+            check(new WorkspaceStore(file).get(b).getString("activeSession").equals("session-3"));
+            rejected(() -> restored.get(a));
+            rejected(() -> restored.saveUi(a,"session-1","stale",0));
+            rejected(() -> restored.delete(a));
+            Path deleteDir=Files.createDirectory(root.resolve("delete-case"));
+            WorkspaceStore deleteFailure=new WorkspaceStore(deleteDir.resolve("mapping.json"));
+            String keep=deleteFailure.create("keep after failure");
+            Files.move(deleteDir,root.resolve("delete-case-backup"));Files.write(deleteDir,new byte[]{1});
+            rejected(() -> deleteFailure.delete(keep));check(deleteFailure.get(keep).getString("name").equals("keep after failure"));
             // A failed disk write must roll back in-memory state, without destroying prior data.
             Path obstruction=root.resolve("directory");Files.createDirectory(obstruction);
             Path target=obstruction.resolve("mapping.json");WorkspaceStore broken=new WorkspaceStore(target);

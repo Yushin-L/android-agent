@@ -33,6 +33,15 @@ public final class WorkspaceStore {
             .put("createdAt", System.currentTimeMillis())));
         return id;
     }
+    /** Delete GUI metadata only; Codex owns and retains the underlying conversation history. */
+    public synchronized void delete(String id) throws Exception {
+        find(id);
+        mutate(() -> {
+            JSONArray old=data.getJSONArray("workspaces"), remaining=new JSONArray();
+            for(int i=0;i<old.length();i++)if(!id.equals(old.getJSONObject(i).getString("id")))remaining.put(old.getJSONObject(i));
+            data.put("workspaces",remaining);
+        });
+    }
     public synchronized void attach(String workspace, String session) throws Exception {
         if (session == null || session.isEmpty()) throw new IOException("INVALID_SESSION_ID");
         JSONArray all = data.getJSONArray("workspaces");

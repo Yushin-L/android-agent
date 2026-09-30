@@ -4,14 +4,15 @@ import java.util.*;
 
 public class SessionControllerTest {
  static class Wire implements SessionController.Transport {
-  SessionController controller;int next=0;boolean instant;String stopped="";JSONObject last;List<String> prompts=new ArrayList<>();
+  Map<String,Integer> runs=new HashMap<>();SessionController controller;int next=0;boolean instant;String stopped="";JSONObject last;List<String> prompts=new ArrayList<>();
   public JSONObject call(String method,JSONObject p)throws Exception {
    if(method.equals("thread/start")){check(p.getString("sandbox").equals("workspace-write"));check(p.getString("approvalPolicy").equals("on-request"));return new JSONObject().put("thread",new JSONObject().put("id","s"+(++next)).put("turns",new JSONArray()));}
    String id=p.getString("threadId");
    if(method.equals("thread/resume"))return new JSONObject().put("thread",new JSONObject().put("id",id).put("turns",new JSONArray().put(new JSONObject().put("items",new JSONArray().put(new JSONObject().put("id","old").put("type","agentMessage").put("text","Codex history"))))));
    if(method.equals("turn/interrupt")){stopped=id+":"+p.getString("turnId");return new JSONObject();}
    last=new JSONObject(p.toString());prompts.add(p.getJSONArray("input").getJSONObject(0).getString("text"));
-   JSONObject turn=new JSONObject().put("id","t-"+id).put("status",instant?"completed":"inProgress");
+   int run=runs.getOrDefault(id,0)+1;runs.put(id,run);
+   JSONObject turn=new JSONObject().put("id","t-"+id+(run==1?"":"-"+run)).put("status",instant?"completed":"inProgress");
    controller.notification("turn/started",new JSONObject().put("threadId",id).put("turn",turn));
    if(instant)controller.notification("turn/completed",new JSONObject().put("threadId",id).put("turn",turn));
    return new JSONObject().put("turn",turn);

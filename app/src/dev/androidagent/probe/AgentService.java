@@ -24,47 +24,83 @@ public final class AgentService extends Service implements AppServerConnection.L
     private final Handler ui=new Handler(Looper.getMainLooper());
     private final List<Runnable> listeners=new CopyOnWriteArrayList<>();
     private final ConcurrentMap<String,Question> questions=new ConcurrentHashMap<>();
-    private AppServerConnection connection;
+    private volatile AppServerConnection connection;
     private AndroidRuntime runtime;
     public WorkspaceStore store;
     public WorkspaceFiles files;
     private GeneratedImages generatedImages;
     public volatile String shellProbe="NOT_RUN";
-    private final Map<String,Integer> fileJobs=new HashMap<>();
+    private final ConcurrentMap<String,Integer> fileJobs=new ConcurrentHashMap<>();
     private final ConcurrentMap<String,String> fileStatus=new ConcurrentHashMap<>();
     public String fileStatus(String id){return fileStatus.getOrDefault(id, "");}
     public SessionController sessions;
     public volatile String error="",loginUrl="",loginCode="",account="로그인 확인 중";
     private volatile String loginId="";
-    private volatile boolean destroyed;
+    private volatile boolean destroyed,stopped;
+    private volatile int generation;
+    private final ThreadLocal<Integer> taskGeneration=new ThreadLocal<>();
+    private AgentLifetime lifetime;
+    private ExecutionJournal journal;
+    private final java.util.concurrent.atomic.AtomicInteger pendingWork=new java.util.concurrent.atomic.AtomicInteger();
+    public int pendingWork(){return pendingWork.get()+fileJobs.size();}
+    public boolean backgroundRunning(){return lifetime!=null&&lifetime.running();}
+    public void dismissNotice(String id){lifetime.dismiss(id);}
+    public void stopBackground(){
+        AgentLifetime.enabled(this,false);stopped=true;generation++;
+        if(connection!=null)connection.close();
+        lifetime.stop();stopSelf();changed();
+    }
+    @Override public void onTimeout(int startId,int type){stopBackground();}
+    public String recoveryStatus(String id){try{JSONObject r=journal==null?null:journal.get(id);return r==null?"":r.optString("phase");}catch(Exception e){return "unknown";}}
+    private void uncertain(String id){try{if(journal!=null)journal.uncertain(id);}catch(Exception e){error="실행 상태 저장 실패 · 기록을 확인해 주세요";}}
+    private void recoverRuns()throws Exception{
+        if(journal==null)return;
+        JSONArray records=journal.all();
+        for(int i=0;i<records.length();i++){JSONObject record=records.getJSONObject(i);if(!record.optString("phase").equals("unknown"))continue;
+            String id=record.getString("session");
+            try{store.owner(id);}catch(Exception removed){journal.remove(id);continue;}
+            try{JSONObject thread=rpc().call("thread/read",new JSONObject().put("threadId",id).put("includeTurns",true),20000).getJSONObject("thread");
+                String phase=journal.reconcile(id,thread);sessions.recovered(id,phase);
+                lifetime.notice(id,"이전 작업 상태 확인",phase.equals("completed")?"완료된 대화 기록을 복원했습니다":"중단된 작업의 기록을 확인해 주세요. 요청은 재전송하지 않았습니다");
+            }catch(Exception unavailable){sessions.recovered(id,"unknown");}
+        }
+        changed();
+    }
     @Override public void onCreate(){
         super.onCreate();runtime=new AndroidRuntime(this);
         try {files=new WorkspaceFiles(new java.io.File(getFilesDir(),"workspaces").toPath(),new java.io.File(getCacheDir(),"file-jobs").toPath());store=new WorkspaceStore(new java.io.File(getFilesDir(),"workspaces.json").toPath());}
         catch(Exception e){error="쓰레드 목록을 읽지 못했습니다. 기존 데이터는 보존했습니다.";}
         generatedImages=new GeneratedImages(files,runtime.home.toPath());
         sessions=new SessionController((method,params)->rpc().call(method,params,45000),runtime.workspace.getAbsolutePath(),this::changed);
-        NotificationManager nm=getSystemService(NotificationManager.class);
-        nm.createNotificationChannel(new NotificationChannel("agent", "진행 중인 대화",NotificationManager.IMPORTANCE_LOW));
+        try{journal=new ExecutionJournal(new java.io.File(getFilesDir(),"execution-journal.json").toPath());journal.recoverInterrupted();}
+        catch(Exception e){journal=null;error="실행 기록을 읽지 못했습니다. 기존 기록을 보존했으며 새 실행은 중지됩니다.";}
+        lifetime=new AgentLifetime(this);
     }
     @Override public IBinder onBind(Intent intent){return binder;}
     @Override public int onStartCommand(Intent intent,int flags,int id){
-        PendingIntent open=PendingIntent.getActivity(this,0,new Intent(this,AgentActivity.class),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
-        startForeground(2,new Notification.Builder(this,"agent").setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentTitle("Android Agent").setContentText("대화 연결이 유지되고 있습니다").setContentIntent(open).build());
-        return START_NOT_STICKY;
+        String action=intent==null?"":intent.getAction();
+        if(AgentLifetime.STOP.equals(action)){stopBackground();return START_NOT_STICKY;}
+        if(AgentLifetime.START.equals(action))AgentLifetime.enabled(this,true);
+        if(!AgentLifetime.enabled(this)){stopped=true;stopSelf();return START_NOT_STICKY;}
+        boolean wasRunning=lifetime.running();stopped=false;lifetime.start();
+        if(!wasRunning)submit(this::recoverRuns,e->{if(e!=null)error="이전 실행 기록을 확인하지 못했습니다";});
+        if(AgentLifetime.INTERRUPT.equals(action))submit(()->{for(String session:sessions.activeSessions())sessions.stop(session);},e->{if(e!=null)error="중단 요청 실패 · 대화를 확인해 주세요";});
+        return START_STICKY;
     }
     public void observe(Runnable listener){listeners.add(listener);}
     public void unobserve(Runnable listener){listeners.remove(listener);}
-    public void changed(){for(Runnable listener:listeners)ui.post(listener);}
+    public void changed(){if(lifetime!=null)lifetime.changed();for(Runnable listener:listeners)ui.post(listener);}
     public void submit(Task task,Result callback){
-        worker.execute(()->{Exception failure=null;try{task.run();}catch(Exception e){failure=e;}
+        final int submittedGeneration=generation;pendingWork.incrementAndGet();changed();
+        worker.execute(()->{Exception failure=null;try{taskGeneration.set(submittedGeneration);checkRunning();task.run();}catch(Exception e){failure=e;}finally{taskGeneration.remove();pendingWork.decrementAndGet();}
             final Exception result=failure;ui.post(()->{if(!destroyed){callback.done(result);changed();}});});
     }
+    private void checkRunning()throws IOException{Integer expected=taskGeneration.get();if(destroyed||stopped||(expected!=null&&expected!=generation))throw new IOException("SERVICE_STOPPED");}
     private synchronized AppServerConnection rpc() throws Exception {
+        checkRunning();
         if(connection!=null&&!connection.isClosed())return connection;
-        if(destroyed)throw new IOException("SERVICE_CLOSED");
         connection=new AppServerConnection(runtime.start(),this);
-        try {connection.call("initialize",new JSONObject().put("clientInfo",new JSONObject().put("name","android_agent").put("version","0.8.2"))
+        try {connection.call("initialize",new JSONObject().put("clientInfo",new JSONObject().put("name","android_agent").put("version","0.9.0"))
             .put("capabilities",new JSONObject().put("experimentalApi",true)),20000);
         connection.notify("initialized",new JSONObject());probeShell(connection);return connection;
         } catch(Exception e){connection.close();connection=null;throw e;}
@@ -124,7 +160,13 @@ public final class AgentService extends Service implements AppServerConnection.L
         loadSession(session);
         JSONArray payload=new JSONArray();
         for(int i=0;i<attachments.length();i++){JSONObject a=attachments.getJSONObject(i);java.nio.file.Path path=files.resolve(workspace,a.getString("path"));if(!java.nio.file.Files.isRegularFile(path))throw new IOException("ATTACHMENT_MISSING");payload.put(new JSONObject(a.toString()).put("absolutePath",imageInput(workspace,path,a.optString("mime"))));}
-        sessions.send(session,text,selection,payload);store.consumeAttachments(workspace,session,attachments);
+        if(journal==null)throw new IOException("EXECUTION_JOURNAL_UNAVAILABLE");
+        if(sessions.busy(session))throw new IOException("SESSION_BUSY");
+        checkRunning();journal.begin(workspace,session,sessions.turnId(session));lifetime.dismiss(session);
+        try{sessions.send(session,text,selection,payload);
+            journal.turn(session,new JSONObject().put("id",sessions.turnId(session)).put("status",sessions.status(session)));
+            store.consumeAttachments(workspace,session,attachments);
+        }catch(Exception e){uncertain(session);throw e;}
     }
     private String imageInput(String owner,java.nio.file.Path path,String mime)throws Exception{
         if(!mime.startsWith("image/")||mime.equals("image/jpeg")||mime.equals("image/png")||mime.equals("image/webp")||mime.equals("image/gif"))return path.toString();
@@ -145,9 +187,13 @@ public final class AgentService extends Service implements AppServerConnection.L
         JSONArray entries=store.get(id).getJSONArray("sessions");
         for(int i=0;i<entries.length();i++)if(sessions.busy(entries.getJSONObject(i).getString("id")))throw new IOException("WORKSPACE_BUSY");
         if(fileJobs.getOrDefault(id,0)>0)throw new IOException("WORKSPACE_BUSY");
-        files.delete(id);store.delete(id);changed();
+        files.delete(id);store.delete(id);if(journal!=null)for(int i=0;i<entries.length();i++){String session=entries.getJSONObject(i).getString("id");journal.remove(session);lifetime.dismiss(session);}changed();
     }
-    public void loadSession(String id)throws Exception{String owner=store.owner(id);sessions.directory(id,files.root(owner).toString());sessions.load(id);retainImages(id);}
+    public void loadSession(String id)throws Exception{String owner=store.owner(id);sessions.directory(id,files.root(owner).toString());sessions.load(id);retainImages(id);
+        if(journal!=null){JSONObject record=journal.get(id);if(record!=null&&record.optString("phase").equals("unknown")){
+            try{JSONObject thread=rpc().call("thread/read",new JSONObject().put("threadId",id).put("includeTurns",true),20000).getJSONObject("thread");journal.reconcile(id,thread);}catch(Exception unavailable){}
+            sessions.recovered(id,recoveryStatus(id));changed();
+        }}}
     private synchronized void beginFiles(String owner)throws Exception{store.get(owner);fileJobs.put(owner,fileJobs.getOrDefault(owner,0)+1);}
     private synchronized void endFiles(String owner){int n=fileJobs.getOrDefault(owner,1)-1;if(n==0)fileJobs.remove(owner);else fileJobs.put(owner,n);}
     private JSONObject toolResult(boolean success,JSONObject result)throws Exception{return new JSONObject().put("success",success).put("contentItems",new JSONArray().put(new JSONObject().put("type","inputText").put("text",result.toString())));}
@@ -173,6 +219,21 @@ public final class AgentService extends Service implements AppServerConnection.L
                     if(params.optBoolean("success"))submit(this::refreshAccount,e->{if(e!=null)account="계정 확인 실패";});
                     else {account="로그인 실패 · 다시 시도해 주세요";changed();}}
             } else {
+                try{if(journal!=null){
+                    String thread=params.optString("threadId");
+                    if((method.equals("turn/started")||method.equals("turn/completed"))&&params.optJSONObject("turn")!=null){
+                        JSONObject before=journal.get(thread);journal.turn(thread,params.getJSONObject("turn"));
+                        JSONObject after=journal.get(thread);
+                        if(method.equals("turn/completed")&&before!=null&&after!=null&&ExecutionJournal.active(before.optString("phase"))&&ExecutionJournal.terminal(after.optString("phase")))
+                            lifetime.notice(thread,after.optString("phase").equals("completed")?"작업이 완료되었습니다":"작업이 중단되었습니다","대화를 열어 결과를 확인하세요");
+                    }
+                    if(method.equals("item/started")||method.equals("item/completed")){
+                        JSONObject item=params.optJSONObject("item");if(item!=null){String type=item.optString("type");
+                            if(type.equals("commandExecution")||type.equals("fileChange")||type.equals("dynamicToolCall")||type.equals("mcpToolCall"))journal.tool(thread,params.optString("turnId"),item.optString("id"),type,method.equals("item/completed"));
+                        }
+                    }
+                }
+                }catch(Exception persistenceFailure){error="실행 상태 저장 실패 · Codex 기록을 확인해 주세요";}
                 sessions.notification(method,params);
                 if(method.equals("item/completed")&&params.optJSONObject("item")!=null&&params.getJSONObject("item").optString("type").equals("imageGeneration")){String thread=params.optString("threadId");submit(()->retainImages(thread),e->{});}
                 if(method.equals("turn/completed")){String thread=params.optString("threadId");for(Question q:questions.values())if(q.thread.equals(thread))q.answer.complete(q.approval?new JSONObject().put("decision","cancel"):new JSONObject().put("answers",new JSONObject()));}
@@ -182,11 +243,13 @@ public final class AgentService extends Service implements AppServerConnection.L
     @Override public JSONObject request(String method,JSONObject params) throws Exception {
         if(method.equals("item/tool/call")){
             if("android_battery_status".equals(params.optString("tool")))return sessions.battery(params,runtime::battery);
-            sessions.validateTool(params);String id=params.getString("threadId"),turn=params.getString("turnId"),owner=store.owner(id);beginFiles(owner);
+            sessions.validateTool(params);String id=params.getString("threadId"),turn=params.getString("turnId"),owner=store.owner(id);
+            if(journal==null)throw new IOException("EXECUTION_JOURNAL_UNAVAILABLE");
+            journal.tool(id,turn,params.getString("callId"),params.getString("tool"),false);beginFiles(owner);
             try {
                 fileStatus.put(id,params.optString("tool").equals("workspace_download")?"파일 다운로드 중… · 중단 버튼으로 취소":"파일 작업 중…");changed();
                 JSONObject result=files.invoke(owner,params.getString("tool"),params.getJSONObject("arguments"),()->sessions.toolCancelled(id,turn));
-                return toolResult(true,result);
+                journal.tool(id,turn,params.getString("callId"),params.getString("tool"),true);return toolResult(true,result);
             }catch(Exception e){String code=e.getMessage();if(code==null||!code.matches("[A-Z_0-9]+"))code="FILE_OPERATION_FAILED";return toolResult(false,new JSONObject().put("error",code));}
             finally{fileStatus.remove(id);endFiles(owner);changed();}
         }
@@ -205,9 +268,9 @@ public final class AgentService extends Service implements AppServerConnection.L
         throw new IOException("UNSUPPORTED_SERVER_REQUEST");
     }
     @Override public void disconnected(){
-        if(sessions!=null)sessions.disconnected();
+        if(sessions!=null){for(String id:sessions.activeSessions()){uncertain(id);if(lifetime!=null)lifetime.notice(id,"연결이 끊겼습니다","대화를 열어 실행 결과를 확인하세요. 요청은 자동 재전송되지 않습니다");}sessions.disconnected();}
         for(Question q:questions.values())q.answer.completeExceptionally(new IOException("CONNECTION_CLOSED"));
         loginUrl="";loginCode="";loginId="";changed();
     }
-    @Override public void onDestroy(){destroyed=true;listeners.clear();if(connection!=null)connection.close();worker.shutdownNow();super.onDestroy();}
+    @Override public void onDestroy(){destroyed=true;listeners.clear();if(connection!=null)connection.close();worker.shutdownNow();if(lifetime!=null)lifetime.stop();super.onDestroy();}
 }

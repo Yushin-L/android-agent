@@ -1,0 +1,6 @@
+<resources>
+    <!-- specialUse (0x40000000) | dataSync (1). API 30 resource linker lacks the
+         specialUse symbol; Android resolves this integer before reading flags.
+         Runtime selects only specialUse on API 34+, dataSync on older phones. -->
+    <integer name="agent_service_types">1073741825</integer>
+</resources>

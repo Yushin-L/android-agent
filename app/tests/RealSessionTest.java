@@ -7,12 +7,12 @@ import java.util.concurrent.atomic.AtomicReference;
 /** Offline Linux control; never reads host credentials or calls a real model. */
 public class RealSessionTest {
  static class Runtime implements AutoCloseable {
-  AppServerConnection connection;SessionController controller;
+  AppServerConnection connection;SessionController controller;Process process;
   Runtime(Path root,Path home,String binary)throws Exception{
    ProcessBuilder builder=new ProcessBuilder(binary,"app-server","--listen","stdio://").directory(root.toFile());
    builder.environment().clear();builder.environment().put("HOME",root.toString());builder.environment().put("CODEX_HOME",home.toString());builder.environment().put("PATH","/usr/bin:/bin");
    AtomicReference<SessionController> state=new AtomicReference<>();
-   connection=new AppServerConnection(builder.start(),new AppServerConnection.Listener(){
+   process=builder.start();connection=new AppServerConnection(process,new AppServerConnection.Listener(){
     public void notification(String method,JSONObject params){try{if(state.get()!=null)state.get().notification(method,params);}catch(Exception e){throw new RuntimeException(e);}}
     public JSONObject request(String method,JSONObject params)throws Exception{throw new java.io.IOException("unexpected offline tool");}
     public void disconnected(){if(state.get()!=null)state.get().disconnected();}

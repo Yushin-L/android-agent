@@ -27,13 +27,15 @@ public final class AgentActivity extends Activity {
     private ImageButton send,stop;
     private int bg,surface,ink,muted,accent,onAccent,errorColor;
     private boolean bound,restoring,sending;
+    private String notificationSession="";
     private final Handler ui=new Handler(Looper.getMainLooper());
     private final Runnable persistDraft=this::saveUi;
     private Typeface regular=Typeface.DEFAULT,medium=Typeface.DEFAULT,semibold=Typeface.DEFAULT;
     private final Runnable refresh=this::refresh;
     private final ServiceConnection binding=new ServiceConnection(){
         public void onServiceConnected(ComponentName name,IBinder binder){
-            service=((AgentService.LocalBinder)binder).service();service.observe(refresh);fileUi.bind(service);render();
+            service=((AgentService.LocalBinder)binder).service();service.observe(refresh);fileUi.bind(service);
+            restoreLocation();render();
             service.submit(service::refreshAccount,e->{if(e!=null)toast("계정 연결을 확인하지 못했습니다");});
             if(!session.isEmpty())loadSession();
         }
@@ -42,12 +44,36 @@ public final class AgentActivity extends Activity {
     @Override public void onCreate(Bundle saved){
         super.onCreate(saved);if(saved!=null){java.util.ArrayList<String> expanded=saved.getStringArrayList("expandedCommands");if(expanded!=null)expandedCommands.addAll(expanded);}fileUi=new FileUi(this,saved,this::refresh);
         if(saved!=null){workspace=saved.getString("workspace","");session=saved.getString("session","");screen=saved.getString("screen","home");}
+        if(saved==null){SharedPreferences last=getSharedPreferences("navigation",0);workspace=last.getString("workspace","");session=last.getString("session","");if(!workspace.isEmpty())screen="chat";}
+        notificationSession=getIntent().getStringExtra("session");
         boolean dark=(getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES;
         bg=dark?0xff151c18:0xfff8faf9;surface=dark?0xff202C25:0xffedf3f0;ink=dark?0xffe9f2ec:0xff18221D;
         muted=dark?0xffa8bab0:0xff5e6e65;accent=dark?0xff80d9ae:0xff087f5b;onAccent=dark?0xff151c18:0xfff8faf9;errorColor=dark?0xffffb4ab:0xffa12d2d;
         try{regular=Typeface.createFromAsset(getAssets(),"fonts/Pretendard-Regular.otf");medium=Typeface.createFromAsset(getAssets(),"fonts/Pretendard-Medium.otf");semibold=Typeface.createFromAsset(getAssets(),"fonts/Pretendard-SemiBold.otf");}catch(Exception ignored){}
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-        render();Intent intent=new Intent(this,AgentService.class);startForegroundService(intent);bound=bindService(intent,binding,BIND_AUTO_CREATE);
+        render();Intent intent=new Intent(this,AgentService.class).setAction(AgentLifetime.START);startForegroundService(intent);bound=bindService(intent,binding,BIND_AUTO_CREATE);
+        if(Build.VERSION.SDK_INT>=33&&checkSelfPermission("android.permission.POST_NOTIFICATIONS")!=android.content.pm.PackageManager.PERMISSION_GRANTED
+            &&!getSharedPreferences("lifetime",0).getBoolean("notificationAsked",false)){
+            getSharedPreferences("lifetime",0).edit().putBoolean("notificationAsked",true).apply();
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},71);
+        }
+    }
+    private void restoreLocation(){
+        try{
+            if(notificationSession!=null&&!notificationSession.isEmpty()){
+                String owner=service.store.owner(notificationSession);service.store.select(owner,notificationSession);
+                workspace=owner;session=notificationSession;screen="chat";
+            }else if(!workspace.isEmpty()){
+                JSONObject record=service.store.get(workspace);
+                if(session.isEmpty()||!workspace.equals(service.store.owner(session)))session=record.getString("activeSession");
+            }
+            if(!session.isEmpty())service.dismissNotice(session);
+        }catch(Exception unavailable){workspace="";session="";screen="home";}
+        notificationSession="";
+    }
+    @Override protected void onNewIntent(Intent intent){
+        super.onNewIntent(intent);saveUi();setIntent(intent);notificationSession=intent.getStringExtra("session");
+        if(service!=null){restoreLocation();render();if(!session.isEmpty())loadSession();}
     }
     private int dp(float n){return Math.round(n*getResources().getDisplayMetrics().density);}
     private LinearLayout column(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);return l;}
@@ -169,7 +195,7 @@ public final class AgentActivity extends Activity {
         suggestions.setVisibility(suggestions.getChildCount()==0?View.GONE:View.VISIBLE);
     }
     private void openWorkspace(String id){
-        saveUi();try{workspace=id;session=service.store.get(id).getString("activeSession");screen="chat";render();
+        saveUi();try{workspace=id;session=service.store.get(id).getString("activeSession");screen="chat";rememberLocation();service.dismissNotice(session);render();
             if(session.isEmpty())newSession();else loadSession();
         }catch(Exception e){toast("쓰레드를 열지 못했습니다");}
     }
@@ -219,9 +245,9 @@ public final class AgentActivity extends Activity {
         try{
             if(modelView!=null)modelView.setText(modelLabel());refreshAttachments();
             boolean busy=service.sessions.busy(session);send.setEnabled(!busy&&!sending&&!session.isEmpty());stop.setEnabled(busy);send.setVisibility(busy?View.GONE:View.VISIBLE);stop.setVisibility(busy?View.VISIBLE:View.GONE);
-            String phase=service.sessions.status(session);status.setTextColor(phase.equals("failed")||phase.equals("error")||phase.equals("disconnected")?errorColor:muted);status.setText(busy?(phase.equals("stopping")?"중단 중…":"응답 작성 중…"):(phase.equals("failed")||phase.equals("error")||phase.equals("disconnected")?"연결 또는 응답 오류 · 다시 시도할 수 있습니다":"메시지를 입력하세요"));
+            String phase=service.sessions.status(session);status.setTextColor(phase.equals("failed")||phase.equals("error")||(phase.equals("disconnected")||phase.equals("unknown")||phase.equals("interrupted"))?errorColor:muted);status.setText(busy?(phase.equals("stopping")?"중단 중…":"응답 작성 중…"):(phase.equals("failed")||phase.equals("error")||(phase.equals("disconnected")||phase.equals("unknown")||phase.equals("interrupted"))?"중단되었거나 결과를 확인하지 못했습니다 · 기록을 확인한 뒤 다시 요청하세요":"메시지를 입력하세요"));
             if(!service.fileStatus(session).isEmpty())status.setText(service.fileStatus(session));
-            boolean failed=phase.equals("failed")||phase.equals("error")||phase.equals("disconnected");status.setVisibility(busy||failed?View.VISIBLE:View.GONE);
+            boolean failed=phase.equals("failed")||phase.equals("error")||(phase.equals("disconnected")||phase.equals("unknown")||phase.equals("interrupted"));status.setVisibility(busy||failed?View.VISIBLE:View.GONE);
             JSONArray items=service.sessions.items(session);String stamp=items.toString();
             if(!stamp.equals(shownItems)){boolean bottom=scroll.getChildAt(0).getHeight()-scroll.getHeight()-scroll.getScrollY()<dp(80);messages.removeAllViews();
                 for(int i=0;i<items.length();i++){JSONObject item=items.getJSONObject(i);String type=item.optString("type"),value="";
@@ -291,16 +317,33 @@ public final class AgentActivity extends Activity {
     private void settings(){
         LinearLayout content=column();ScrollView settingsScroll=new ScrollView(this);settingsScroll.addView(content);body.addView(settingsScroll,new LinearLayout.LayoutParams(-1,-1));body=content;
         button(body,"‹ 쓰레드 목록",()->{screen="home";render();});body.addView(text("설정",22));accountView=text(service.account,17);body.addView(accountView);body.addView(text("셸 점검 · "+service.shellProbe,14));
+        body.addView(text(service.backgroundRunning()?"백그라운드 에이전트 · 실행 중":"백그라운드 에이전트 · 꺼짐",17));
+        body.addView(text("화면을 꺼도 작업을 이어갑니다. 서비스 종료 시 에이전트 연결을 닫으며, 이미 완료된 파일 작업은 유지됩니다.",14));
+        button(body,service.backgroundRunning()?"백그라운드 서비스 종료":"백그라운드 서비스 시작",()->{
+            if(service.backgroundRunning()){service.stopBackground();render();}
+            else{startForegroundService(new Intent(this,AgentService.class).setAction(AgentLifetime.START));ui.postDelayed(this::render,300);}
+        });
+        android.os.PowerManager power=getSystemService(android.os.PowerManager.class);
+        body.addView(text(power.isIgnoringBatteryOptimizations(getPackageName())?"배터리 최적화 · 제한 제외됨":"화면 꺼짐 중 작업을 위해 배터리 제한을 해제해 주세요",14));
+        button(body,"배터리 사용 설정",()->{
+            try{Intent intent=new Intent(power.isIgnoringBatteryOptimizations(getPackageName())?android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS:android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                if(!power.isIgnoringBatteryOptimizations(getPackageName()))intent.setData(android.net.Uri.parse("package:"+getPackageName()));startActivity(intent);
+            }catch(Exception unavailable){toast("시스템 앱 설정에서 배터리 제한을 해제해 주세요");}
+        });
+        body.addView(text(getSystemService(NotificationManager.class).areNotificationsEnabled()?"작업 알림 · 허용됨":"작업 완료와 승인 요청 알림이 꺼져 있습니다",14));
+        button(body,"알림 설정",()->startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,getPackageName())));
         button(body,"ChatGPT 로그인",()->login(false));button(body,"기기 코드로 로그인",()->login(true));
         button(body,"계정 새로고침",()->service.submit(service::refreshAccount,e->{if(e!=null)toast("계정 확인 실패");render();}));
         button(body,"로그아웃",()->service.submit(service::logout,e->{if(e!=null)toast("진행 중인 대화를 마친 뒤 다시 시도해 주세요");render();}));
-        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.8.2\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\",\"shellProbe\":\""+service.shellProbe+"\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
+        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.9.0\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\",\"shellProbe\":\""+service.shellProbe+"\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
     }
     private void login(boolean device){service.submit(()->service.login(device),e->{if(e!=null){toast("로그인을 시작하지 못했습니다");return;}if(!service.loginCode.isEmpty())new AlertDialog.Builder(this).setTitle("로그인 코드").setMessage(service.loginCode).setPositiveButton("복사",(d,n)->((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("로그인 코드",service.loginCode))).show();try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(service.loginUrl)));}catch(Exception ex){toast("브라우저를 열지 못했습니다");}});}
-    private void saveUi(){ui.removeCallbacks(persistDraft);if(service==null||input==null||session.isEmpty())return;try{service.store.saveUi(workspace,session,input.getText().toString(),scroll==null?0:scroll.getScrollY());}catch(Exception e){toast("입력 초안을 저장하지 못했습니다");}}
+    private void rememberLocation(){if(!workspace.isEmpty())getSharedPreferences("navigation",0).edit().putString("workspace",workspace).putString("session",session).apply();}
+    private void saveUi(){rememberLocation();ui.removeCallbacks(persistDraft);if(service==null||input==null||session.isEmpty())return;try{service.store.saveUi(workspace,session,input.getText().toString(),scroll==null?0:scroll.getScrollY());}catch(Exception e){toast("입력 초안을 저장하지 못했습니다");}}
     private void toast(String value){Toast.makeText(this,value,Toast.LENGTH_SHORT).show();}
     @Override protected void onSaveInstanceState(Bundle state){saveUi();state.putString("workspace",workspace);state.putString("session",session);state.putString("screen",screen);state.putStringArrayList("expandedCommands",new java.util.ArrayList<>(expandedCommands));fileUi.save(state);super.onSaveInstanceState(state);}
     @Override public void onBackPressed(){if(!screen.equals("home")){saveUi();screen="home";render();}else super.onBackPressed();}
+    @Override protected void onResume(){super.onResume();if(service!=null&&screen.equals("settings"))render();}
     @Override protected void onPause(){saveUi();super.onPause();}
     @Override protected void onDestroy(){ui.removeCallbacks(persistDraft);if(service!=null)service.unobserve(refresh);if(bound)unbindService(binding);super.onDestroy();}
 }

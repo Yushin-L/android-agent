@@ -1,14 +1,27 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="dev.androidagent.probe" android:versionCode="16" android:versionName="0.8.2">
+    package="dev.androidagent.probe" android:versionCode="17" android:versionName="0.9.0">
     <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <application android:label="Android Agent" android:theme="@style/AppTheme"
         android:allowBackup="false" android:extractNativeLibs="true"
         android:supportsRtl="true" android:usesCleartextTraffic="false">
         <provider android:name=".WorkspaceProvider" android:authorities="dev.androidagent.probe.files" android:exported="false" android:grantUriPermissions="true" />
-        <service android:name=".AgentService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <service android:name=".AgentService" android:exported="false" android:stopWithTask="false" android:foregroundServiceType="@integer/agent_service_types">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="User-started persistent on-device agent coordinating a local Codex process, shell commands and Android tool execution, with visible status and user stop controls." />
+        </service>
+        <receiver android:name=".AgentBootReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
         
         <activity android:name=".AgentActivity" android:exported="true" android:windowSoftInputMode="adjustResize">
             <intent-filter>

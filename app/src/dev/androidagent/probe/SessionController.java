@@ -10,7 +10,7 @@ public final class SessionController {
     public interface Changed { void changed(); }
     public static final class Session {
         public final String id;
-        public String turn="", status="ready", error="";
+        public String turn="", baseline="", status="ready", error="";
         public boolean starting, running, loaded;
         private final LinkedHashMap<String,JSONObject> items=new LinkedHashMap<>();
         private final Set<String> calls=new HashSet<>();
@@ -52,10 +52,10 @@ public final class SessionController {
         changed.changed();
     }
     private void hydrate(Session s,JSONObject thread) throws Exception {
-        s.items.clear();JSONArray turns=thread.optJSONArray("turns");
+        s.items.clear();s.turn="";s.status="ready";s.error="";JSONArray turns=thread.optJSONArray("turns");
         if(turns==null)return;
         for(int i=0;i<turns.length();i++) {
-            JSONObject turn=turns.getJSONObject(i);JSONArray items=turn.optJSONArray("items");
+            JSONObject turn=turns.getJSONObject(i);s.turn=turn.optString("id",s.turn);s.status=ExecutionJournal.terminal(turn.optString("status"))?turn.optString("status"):"unknown";JSONArray items=turn.optJSONArray("items");
             if(items!=null)for(int j=0;j<items.length();j++)put(s,items.getJSONObject(j));
         }
     }
@@ -77,7 +77,7 @@ public final class SessionController {
             if(s.running||s.starting)throw new IOException("SESSION_BUSY");
             long active=sessions.values().stream().filter(v->v.running||v.starting).count();
             if(active>=2)throw new IOException("CONCURRENT_TURN_LIMIT");
-            s.starting=true;s.turn="";s.error="";s.status="starting";s.calls.clear();
+            s.baseline=s.turn;s.starting=true;s.turn="";s.error="";s.status="starting";s.calls.clear();
         }
         changed.changed();
         try {
@@ -95,7 +95,7 @@ public final class SessionController {
                 if(s.starting){s.starting=false;s.running=true;s.status="running";}
             }
         } catch(Exception e) {
-            synchronized(this){Session s=session(id);s.starting=false;s.running=false;s.status="error";s.error="응답을 시작하지 못했습니다. 다시 시도해 주세요.";}
+            synchronized(this){Session s=session(id);s.starting=false;s.running=false;s.status="unknown";s.error="전송 결과를 확인하지 못했습니다. 기록을 확인한 뒤 다시 요청해 주세요.";}
             throw e;
         } finally {changed.changed();}
     }
@@ -111,7 +111,7 @@ public final class SessionController {
             Session s=sessions.get(params.optString("threadId"));if(s==null)return;
             JSONObject turn=params.optJSONObject("turn");
             String incoming=turn!=null?turn.optString("id"):params.optString("turnId");
-            if(incoming.isEmpty()||(!s.starting&&!s.running))return;
+            if(incoming.isEmpty()||incoming.equals(s.baseline)||(!s.starting&&!s.running))return;
             if(s.turn.isEmpty()&&s.starting)s.turn=incoming;
             if(!s.turn.equals(incoming))return;
             if(method.equals("turn/started")){s.running=true;s.starting=false;s.status="running";}
@@ -138,7 +138,7 @@ public final class SessionController {
     }
     public synchronized void validateTool(JSONObject p)throws Exception{
         Session s=sessions.get(p.optString("threadId"));if(s==null||(!s.starting&&!s.running)||s.status.equals("stopping"))throw new IOException("INACTIVE_TOOL_SESSION");
-        String turn=p.getString("turnId");if(s.turn.isEmpty()&&s.starting)s.turn=turn;
+        String turn=p.getString("turnId");if(turn.equals(s.baseline))throw new IOException("STALE_TOOL_TURN");if(s.turn.isEmpty()&&s.starting)s.turn=turn;
         if(!s.turn.equals(turn)||s.calls.size()>=32||!s.calls.add(p.getString("callId"))||!p.isNull("namespace"))throw new IOException("INVALID_TOOL_CALL");
     }
     public synchronized boolean toolCancelled(String id,String turn){Session s=sessions.get(id);return s==null||(!s.starting&&!s.running)||!s.turn.equals(turn)||s.status.equals("stopping");}
@@ -147,6 +147,7 @@ public final class SessionController {
             Session s=sessions.get(p.optString("threadId"));
             if(s==null||(!s.starting&&!s.running))throw new IOException("INACTIVE_TOOL_SESSION");
             String turn=p.getString("turnId");
+            if(turn.equals(s.baseline))throw new IOException("STALE_TOOL_TURN");
             if(s.turn.isEmpty()&&s.starting)s.turn=turn;
             if(!s.turn.equals(turn)||s.calls.size()>=32||!s.calls.add(p.getString("callId")))throw new IOException("INVALID_TOOL_CALL");
             BatteryTool tool=new BatteryTool(reader);tool.threadId=s.id;tool.turnId=s.turn;
@@ -158,6 +159,9 @@ public final class SessionController {
         changed.changed();
     }
     public synchronized JSONArray items(String id) throws Exception {return session(id).snapshot();}
+    public synchronized String turnId(String id){return session(id).turn;}
+    public synchronized java.util.List<String> activeSessions(){java.util.List<String> ids=new java.util.ArrayList<>();for(Session s:sessions.values())if(s.running||s.starting)ids.add(s.id);return ids;}
+    public synchronized void recovered(String id,String status){Session s=session(id);if(!s.running&&!s.starting&&!status.isEmpty())s.status=status;}
     public synchronized String status(String id) {return session(id).status;}
     public synchronized boolean busy(String id) {Session s=session(id);return s.running||s.starting;}
 }

@@ -19,7 +19,7 @@ if [ ! -f artifacts/debug.keystore ]; then
   keytool -genkeypair -keystore artifacts/debug.keystore -storepass android -keypass android -alias probe -dname 'CN=Android Agent Diagnostic' -keyalg RSA -keysize 2048 -validity 3650
 fi
 zipalign -f 4 build/probe-unsigned.apk build/probe-aligned.apk
-apksigner sign --ks artifacts/debug.keystore --ks-pass pass:android --key-pass pass:android --ks-key-alias probe --out artifacts/android-agent-0.8.2-arm64.apk build/probe-aligned.apk
-apksigner verify --verbose artifacts/android-agent-0.8.2-arm64.apk
-aapt dump badging artifacts/android-agent-0.8.2-arm64.apk > results/apk-badging.txt
-sha256sum artifacts/android-agent-0.8.2-arm64.apk payload/*.so > results/sha256.txt
+apksigner sign --ks artifacts/debug.keystore --ks-pass pass:android --key-pass pass:android --ks-key-alias probe --out artifacts/android-agent-0.9.0-arm64.apk build/probe-aligned.apk
+apksigner verify --verbose artifacts/android-agent-0.9.0-arm64.apk
+aapt dump badging artifacts/android-agent-0.9.0-arm64.apk > results/apk-badging.txt
+sha256sum artifacts/android-agent-0.9.0-arm64.apk payload/*.so > results/sha256.txt

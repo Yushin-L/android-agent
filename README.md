@@ -12,7 +12,7 @@ Android 휴대폰 자체를 에이전트의 작업 환경으로 만드는 프로
 | [M1 · Android Codex 실행 경로 검증](https://github.com/Yushin-L/android-agent/milestone/2) | 완료된 기준선 |
 | [M2 · 쓰레드·세션 관리와 대화 UI](https://github.com/Yushin-L/android-agent/milestone/3) | 구현 완료 · APK 0.7.5 |
 | [M3 · Android 행동 도구 확장](https://github.com/Yushin-L/android-agent/milestone/4) | 파일 작업 구현 · APK 0.8.2 · 실기기 확인 대기 |
-| [M4 · 실행 수명과 중단 복구](https://github.com/Yushin-L/android-agent/milestone/5) | 후속 작업 |
+| [M4 · 실행 수명과 중단 복구](https://github.com/Yushin-L/android-agent/milestone/5) | 백그라운드·기록 복원 구현 · APK 0.9.0 · 실기기 확인 대기 |
 | [M5 · 홈 통합과 배포 범위](https://github.com/Yushin-L/android-agent/milestone/6) | 후속 작업 |
 
 ## 현재 합의
@@ -27,7 +27,7 @@ Android 휴대폰 자체를 에이전트의 작업 환경으로 만드는 프로
 
 글꼴·화면 구조는 [설계 합의 #9](https://github.com/Yushin-L/android-agent/issues/9)를 따르고 색상은 [#32](https://github.com/Yushin-L/android-agent/issues/32)로 갱신했다. 제품 소스와 빌드 방법은 [app/README.md](app/README.md), 진행 증거는 [제품 앱 소스·빌드 구조 #10](https://github.com/Yushin-L/android-agent/issues/10)을 참고한다.
 
-M3의 앱·서비스 연결 설계와 실제 구현 근거는 [#23](https://github.com/Yushin-L/android-agent/issues/23), Notion MCP 후속 구현은 [#24](https://github.com/Yushin-L/android-agent/issues/24)에 있다. [APK 다운로드](http://140.245.79.96/android-agent/)에서 0.8.2를 받을 수 있다.
+M3의 앱·서비스 연결 설계와 실제 구현 근거는 [#23](https://github.com/Yushin-L/android-agent/issues/23), Notion MCP 후속 구현은 [#24](https://github.com/Yushin-L/android-agent/issues/24)에 있다. [APK 다운로드](http://140.245.79.96/android-agent/)에서 0.9.0을 받을 수 있다. 백그라운드 실행과 종료 복원은 [#20](https://github.com/Yushin-L/android-agent/issues/20), [#18](https://github.com/Yushin-L/android-agent/issues/18), [#19](https://github.com/Yushin-L/android-agent/issues/19)에서 추적한다.
 
 ## 검증된 범위
 

@@ -15,7 +15,7 @@ python3 app/prepare_android_payload.py app/downloads/runtime.tgz
 docker run --rm --network none --user "$(id -u):$(id -g)" -v "$PWD/app:/work" android-agent-builder
 ```
 
-출력: `app/artifacts/android-agent-0.8.2-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
+출력: `app/artifacts/android-agent-0.9.0-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
 런타임 아카이브의 SHA-512를 검사한 뒤 APK용 helper 이름만 동일 길이로 교체한다.
 출처·원본/수정 SHA-256·패치 위치는 `assets/runtime-provenance.json`에 기록된다.
 Codex의 Apache-2.0 고지는 `assets/CODEX-LICENSE`, `CODEX-NOTICE`에 포함된다.
@@ -69,3 +69,16 @@ Android 앱 UID의 접근 범위에서 실행한다. 참조 런타임의 플랫�
 ## 0.8.2: 명령 출력 접기·펼치기
 
 명령 실행은 기본적으로 상태 헤더만 표시한다. 탭하면 명령·출력·종료 코드·파일 메뉴가 나타난다. 세션/항목 ID별 펼침 상태는 화면 갱신·쓰레드 이동·회전에서 유지한다. 실행 승인 화면은 변경하지 않는다. 설계·검증 기록: [#33](https://github.com/Yushin-L/android-agent/issues/33).
+
+
+## 0.9.0: 백그라운드 실행
+
+앱을 열면 사용자 시작 foreground service가 유지된다. 설정/실행 알림에서 종료할 수 있다. API 34+에는 로컬 에이전트 조율 용도의 specialUse와 manifest 설명을 선언하고, 이전 API에는 dataSync를 사용한다. ARM64의 API 30 리소스 링커 호환을 위해 서비스 유형은 정수 리소스 `0x40000001`로 선언하되 실행 시 OS에 맞는 한 유형만 선택한다.
+
+작업 중에는 최대 120초의 partial wake lock을 45초마다 갱신하고, 대기 상태와 종료 시 해제한다. 완료·중단·승인 요청 알림을 누르면 해당 대화로 이동한다. Android 13+ 알림 권한을 요청하며 설정에서 알림과 배터리 제한을 관리할 수 있다. Doze에서는 배터리 제한 제외가 필요할 수 있고 제조사 전원 정책도 적용된다.
+
+START_STICKY와 부팅/업데이트 수신기는 켜 둔 서비스를 복원한다. 사용자가 서비스 종료를 선택하면 재부팅으로 되살리지 않는다. Android 설정의 강제 중지는 우회하지 않으며 예약 실행은 포함하지 않는다.
+
+실행 전 원자적 저널에 세션·턴·도구 식별자 및 상태만 기록한다. 프롬프트·명령·인증은 저널에 기록하지 않는다. 재생성 시 Codex 기록을 조회하며 프롬프트/도구를 자동 재실행하지 않는다. 미완료 기록은 결과 미상으로 표시하고 사용자가 기록을 확인한 뒤 새 요청을 보낸다. 도구 반환 기록은 외부 부작용의 정확히 한 번 수행을 보장하지 않는다. 마지막 GUI 쓰레드와 대화 선택도 복원한다.
+
+`ExecutionJournalTest`는 원자적 저장 실패·오래된 이벤트·완료 후 늦은 ACK·결과 미상 복원을 검사한다. `RealRecoveryTest`는 별도의 인증 없는 Linux Codex 자식 프로세스를 실행 중 강제 종료한 뒤, 재시작 후 read/resume이 새 턴을 만들지 않는지 검사한다. Android의 화면 꺼짐·최근 앱 제거·재부팅·OS 앱 종료와 삼성 배터리 정책 검증은 실기기 확인 전까지 미완료다. 설계와 증거는 [#20](https://github.com/Yushin-L/android-agent/issues/20)에 기록한다.

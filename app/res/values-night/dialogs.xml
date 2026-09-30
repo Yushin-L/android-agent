@@ -1,0 +1,17 @@
+<resources>
+    <style name="AgentDialog" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:fontFamily">@font/pretendard</item>
+        <item name="android:windowTitleStyle">@style/AgentDialogTitle</item>
+        <item name="android:textAppearanceListItem">@style/AgentPopupText</item>
+        <item name="android:windowBackground">@drawable/dialog_surface</item>
+        <item name="android:colorBackground">@color/dialog_surface</item>
+        <item name="android:colorAccent">@color/dialog_accent</item>
+        <item name="android:textColorPrimary">@color/dialog_ink</item>
+        <item name="android:textColorSecondary">@color/dialog_muted</item>
+        <item name="android:colorControlHighlight">@color/dialog_ripple</item>
+        <item name="android:windowElevation">12dp</item>
+        <item name="android:backgroundDimAmount">0.32</item>
+        <item name="android:windowAnimationStyle">@style/AgentDialogAnimation</item>
+        <item name="android:buttonBarButtonStyle">@style/AgentDialogButton</item>
+    </style>
+</resources>

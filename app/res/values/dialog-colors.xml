@@ -1,0 +1,7 @@
+<resources>
+    <color name="dialog_surface">#F8FAF9</color>
+    <color name="dialog_ink">#18221D</color>
+    <color name="dialog_muted">#5E6E65</color>
+    <color name="dialog_accent">#087F5B</color>
+    <color name="dialog_ripple">#22087F5B</color>
+</resources>

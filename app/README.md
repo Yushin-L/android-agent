@@ -15,7 +15,7 @@ python3 app/prepare_android_payload.py app/downloads/runtime.tgz
 docker run --rm --network none --user "$(id -u):$(id -g)" -v "$PWD/app:/work" android-agent-builder
 ```
 
-출력: `app/artifacts/android-agent-0.9.1-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
+출력: `app/artifacts/android-agent-0.9.2-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
 런타임 아카이브의 SHA-512를 검사한 뒤 APK용 helper 이름만 동일 길이로 교체한다.
 출처·원본/수정 SHA-256·패치 위치는 `assets/runtime-provenance.json`에 기록된다.
 Codex의 Apache-2.0 고지는 `assets/CODEX-LICENSE`, `CODEX-NOTICE`에 포함된다.
@@ -89,3 +89,12 @@ START_STICKY와 부팅/업데이트 수신기는 켜 둔 서비스를 복원한�
 쓰레드 파일은 경로 단계와 상위 폴더 이동을 갖춘 넓은 탐색 화면으로 표시한다. 폴더 우선 이름순 정렬, 크기순 정렬, 현재 폴더 이름 검색, 새 폴더 생성·새로고침을 제공한다. 파일 탭은 미리보기/열기, 더보기는 공유·폰에 저장 메뉴다. 종류 아이콘과 이름·크기를 분리하며 기존 색상과 글꼴을 재사용한다. 뒤로가기는 상위 폴더, 파일 홈에서는 대화로 돌아간다. 회전 시 현재 폴더·검색·정렬·목록 위치를 복원한다. 최대 1,000개 항목 표시 한계는 화면에 안내한다.
 
 APK 컴파일·서명 및 정적 검토 범위이며 실기기 레이아웃·큰 글씨·TalkBack 검증은 별도다. 설계·증거: [#34](https://github.com/Yushin-L/android-agent/issues/34).
+
+
+## 0.9.2: 공통 팝업과 키보드 스크롤
+
+앱 소유 대화상자와 팝업 메뉴에 Pretendard 리소스 글꼴, 민트 라이트/다크 표면, 둥근 모서리와 터치 ripple을 적용한다. 대화상자는 짧은 등장/퇴장 효과를 사용하며 OS 애니메이션 설정을 따른다. 기존 assets의 라이선스된 글꼴을 빌드 시 Android font 리소스로도 묶어 기본 프레임워크 위젯에 적용한다. 사진/파일 선택기 등 시스템 소유 창은 시스템 스타일을 따른다.
+
+새 쓰레드 제목과 입력 영역은 24dp 좌우 여백으로 맞췄다. 채팅 입력란을 탭하거나 키보드로 채팅 영역이 줄어들면 최근 메시지를 스크롤해 보여준다. 메시지 자동 스크롤은 입력 포커스를 빼앗는 fullScroll 대신 좌표 이동을 사용한다. 과거 대화를 읽을 때 계속 바닥에 고정하지 않는다.
+
+APK 빌드·리소스 링크·서명과 정적 검토 범위다. 실기기 키보드 전환/글꼴/모서리/큰 글씨/TalkBack은 별도 확인이 필요하다. 기록: [#35](https://github.com/Yushin-L/android-agent/issues/35).

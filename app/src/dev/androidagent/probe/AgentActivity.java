@@ -114,7 +114,7 @@ public final class AgentActivity extends Activity {
     private void render(){
         if(approvalDialog!=null){approvalDialog.dismiss();approvalDialog=null;}
         input=null;attachmentRows=null;shownAttachments="";suggestions=null;messages=null;status=null;accountView=null;modelView=null;scroll=null;shownItems="";shownQuestion="";
-        root=column();root.setBackgroundColor(bg);
+        root=column();root.setBackgroundColor(bg);root.setFocusableInTouchMode(true);root.requestFocus();
         root.setOnApplyWindowInsetsListener((view,insets)->{
             if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.ime());root.setPadding(bars.left,bars.top,bars.right,bars.bottom);}
             else root.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;
@@ -125,11 +125,18 @@ public final class AgentActivity extends Activity {
         try {if(screen.equals("settings"))settings();else if(screen.equals("chat")&&!workspace.isEmpty())chat();else home();}
         catch(Exception e){body.addView(text("화면을 불러오지 못했습니다. 목록으로 돌아가 다시 열어 주세요.",17));button(body,"쓰레드 목록",()->{screen="home";render();});}
     }
+    private View dialogContent(View content){LinearLayout form=column();form.setPadding(dp(24),dp(8),dp(24),dp(8));form.addView(content,new LinearLayout.LayoutParams(-1,-2));return form;}
+    private void latestMessages(boolean animate){
+        final ScrollView current=scroll;if(current==null)return;
+        current.post(()->{if(current!=scroll||current.getChildCount()==0)return;int y=Math.max(0,current.getChildAt(0).getHeight()-current.getHeight()+current.getPaddingBottom());
+            if(animate&&android.animation.ValueAnimator.areAnimatorsEnabled())current.smoothScrollTo(0,y);else current.scrollTo(0,y);
+        });
+    }
     private void home()throws Exception{
         body.addView(text("쓰레드",22));TextView hint=text("하고 싶은 일마다 대화를 모아두세요.",14);hint.setTextColor(muted);body.addView(hint);
         button(body,"새로운 쓰레드 생성",()->{
-            EditText name=new EditText(this);name.setHint("쓰레드 이름");name.setSingleLine(true);name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(120)});
-            AlertDialog dialog=new AlertDialog.Builder(this).setTitle("새로운 쓰레드").setView(name).setNegativeButton("취소",null).setPositiveButton("만들기",null).create();
+            EditText name=new EditText(this);name.setHint("쓰레드 이름");name.setContentDescription("쓰레드 이름");name.setTypeface(regular);name.setTextSize(17);name.setPadding(0,dp(12),0,dp(12));name.setSingleLine(true);name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(120)});
+            AlertDialog dialog=new AlertDialog.Builder(this).setTitle("새로운 쓰레드").setView(dialogContent(name)).setNegativeButton("취소",null).setPositiveButton("만들기",null).create();
             dialog.setOnShowListener(v->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(b->{String value=name.getText().toString().trim();if(value.isEmpty()){name.setError("이름을 입력해 주세요");return;}
                 dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
                 service.submit(()->workspace=service.createWorkspace(value),e->{if(e!=null){name.setError("생성 실패 · 연결과 로그인을 확인해 주세요");dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);}else{dialog.dismiss();openWorkspace(workspace);}});
@@ -219,13 +226,18 @@ public final class AgentActivity extends Activity {
         ImageButton menu=iconButton(toolbar,"대화 메뉴","more",()->{});
         menu.setOnClickListener(v->{PopupMenu popup=new PopupMenu(this,menu);popup.getMenu().add(0,1,0,"새 대화 · /new");popup.getMenu().add(0,2,1,"이전 대화 · /resume");popup.getMenu().add(0,4,2,"모델 설정 · /model");popup.getMenu().add(0,3,3,"쓰레드 삭제");popup.getMenu().add(0,5,4,"쓰레드 파일");popup.setOnMenuItemClickListener(item->{if(item.getItemId()==1)newSession();else if(item.getItemId()==2)resume();else if(item.getItemId()==4)chooseModel();else if(item.getItemId()==5)fileUi.browse(workspace,"");else deleteWorkspace(workspace);return true;});popup.show();});
         status=text("대화를 불러오는 중",14);status.setTextColor(muted);status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);body.addView(status);
-        scroll=new ScrollView(this);messages=column();scroll.addView(messages);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        scroll=new ScrollView(this);
+        scroll.addOnLayoutChangeListener((view,left,top,right,bottom,oldLeft,oldTop,oldRight,oldBottom)->{
+            if(view==scroll&&oldBottom>oldTop&&bottom-top<oldBottom-oldTop&&input!=null&&input.hasFocus())latestMessages(true);
+        });messages=column();scroll.addView(messages);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         suggestions=column();suggestions.setVisibility(View.GONE);body.addView(suggestions);
         attachmentRows=column();body.addView(attachmentRows);
         LinearLayout composer=new LinearLayout(this);composer.setGravity(Gravity.BOTTOM);body.addView(composer);iconButton(composer,"사진·파일 첨부","plus",()->fileUi.choose(workspace,session));input=new EditText(this);input.setId(View.generateViewId());input.setContentDescription("메시지");input.setTextSize(17);input.setTypeface(regular);input.setTextColor(ink);input.setHintTextColor(muted);input.setHint("메시지를 입력하세요");input.setMinLines(1);input.setMaxLines(5);input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(8000)});composer.addView(input,new LinearLayout.LayoutParams(0,-2,1));
+        input.setOnClickListener(v->latestMessages(true));
+        input.setOnFocusChangeListener((view,focused)->{if(focused)latestMessages(true);});
         restoring=true;JSONArray entries=service.store.get(workspace).getJSONArray("sessions");int position=0;
         for(int i=0;i<entries.length();i++)if(entries.getJSONObject(i).getString("id").equals(session)){input.setText(entries.getJSONObject(i).optString("draft"));position=entries.getJSONObject(i).optInt("scrollY");}
-        restoring=false;final int y=position;ScrollView current=scroll;current.post(()->current.scrollTo(0,y));
+        restoring=false;final int y=position;ScrollView current=scroll;current.post(()->{if(current==scroll)current.scrollTo(0,y);});
         input.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){if(!restoring){completeCommand();ui.removeCallbacks(persistDraft);ui.postDelayed(persistDraft,400);}}public void afterTextChanged(Editable e){}});
         completeCommand();
         LinearLayout controls=new LinearLayout(this);LinearLayout.LayoutParams controlSpace=new LinearLayout.LayoutParams(-2,-2);controlSpace.setMarginStart(dp(8));composer.addView(controls,controlSpace);
@@ -267,7 +279,7 @@ public final class AgentActivity extends Activity {
                     if(type.equals("dynamicToolCall")&&item.optBoolean("success")){
                         JSONArray outputs=item.optJSONArray("contentItems");if(outputs!=null)for(int j=0;j<outputs.length();j++){try{JSONObject file=new JSONObject(outputs.getJSONObject(j).optString("text"));if(file.has("path")&&file.has("size")&&!file.optBoolean("directory")){String path=file.getString("path"),owner=workspace;button(messages,"파일 · "+path+" · "+FileUi.size(file.getLong("size")),()->fileUi.actions(owner,path));}}catch(Exception ignored){}}
                     }
-                }shownItems=stamp;if(bottom)scroll.post(()->{if(scroll!=null)scroll.fullScroll(View.FOCUS_DOWN);});
+                }shownItems=stamp;if(bottom)latestMessages(false);
             }
             AgentService.Question q=service.question(session);if(q==null&&approvalDialog!=null){approvalDialog.dismiss();approvalDialog=null;}if(q!=null&&!q.key.equals(shownQuestion)){shownQuestion=q.key;showQuestion(q);}
         }catch(Exception e){status.setText("대화 표시 오류 · 다시 열어 주세요");}
@@ -307,13 +319,13 @@ public final class AgentActivity extends Activity {
         if(q.approval){
             String detail=q.params.optString("reason","이 작업을 실행할까요?")+"\n\n"+q.params.optString("command",q.params.optString("grantRoot","파일 변경"))+"\n\n작업 위치: "+q.params.optString("cwd","")+"\n"+q.params.optString("changesPreview","");
             TextView content=text(detail,16);content.setTextIsSelectable(true);ScrollView view=new ScrollView(this);view.addView(content);
-            AlertDialog.Builder dialog=new AlertDialog.Builder(this).setTitle("작업 실행 확인").setView(view).setNegativeButton("거절",(d,n)->approval(q,"decline")).setCancelable(false);
+            AlertDialog.Builder dialog=new AlertDialog.Builder(this).setTitle("작업 실행 확인").setView(dialogContent(view)).setNegativeButton("거절",(d,n)->approval(q,"decline")).setCancelable(false);
             JSONArray choices=q.params.optJSONArray("availableDecisions");boolean accept=choices==null; if(choices!=null)for(int i=0;i<choices.length();i++)if("accept".equals(choices.optString(i)))accept=true;
             if(accept)dialog.setPositiveButton("이번 작업 허용",(d,n)->approval(q,"accept"));approvalDialog=dialog.create();approvalDialog.setOnDismissListener(d->approvalDialog=null);approvalDialog.show();return;
         }
         LinearLayout fields=column();JSONArray questions=q.params.getJSONArray("questions");EditText[] answers=new EditText[questions.length()];
         for(int i=0;i<answers.length;i++){JSONObject item=questions.getJSONObject(i);fields.addView(text(item.optString("question"),17));JSONArray options=item.optJSONArray("options");if(options!=null){String choices="";for(int j=0;j<options.length();j++)choices+=options.getJSONObject(j).optString("label")+"  ";fields.addView(text(choices,14));}answers[i]=new EditText(this);answers[i].setHint("답변");fields.addView(answers[i]);}
-        ScrollView form=new ScrollView(this);form.addView(fields);new AlertDialog.Builder(this).setTitle("입력이 필요합니다").setView(form).setPositiveButton("전달",(d,n)->{try{JSONObject out=new JSONObject();for(int i=0;i<answers.length;i++)out.put(questions.getJSONObject(i).getString("id"),new JSONObject().put("answers",new JSONArray().put(answers[i].getText().toString())));service.answer(q,new JSONObject().put("answers",out));}catch(Exception e){toast("답변 전달 실패");}}).setNegativeButton("취소",(d,n)->{try{service.answer(q,new JSONObject().put("answers",new JSONObject()));}catch(Exception ignored){}}).setCancelable(false).show();
+        ScrollView form=new ScrollView(this);form.addView(fields);new AlertDialog.Builder(this).setTitle("입력이 필요합니다").setView(dialogContent(form)).setPositiveButton("전달",(d,n)->{try{JSONObject out=new JSONObject();for(int i=0;i<answers.length;i++)out.put(questions.getJSONObject(i).getString("id"),new JSONObject().put("answers",new JSONArray().put(answers[i].getText().toString())));service.answer(q,new JSONObject().put("answers",out));}catch(Exception e){toast("답변 전달 실패");}}).setNegativeButton("취소",(d,n)->{try{service.answer(q,new JSONObject().put("answers",new JSONObject()));}catch(Exception ignored){}}).setCancelable(false).show();
     }
     private void approval(AgentService.Question q,String decision){try{service.answer(q,new JSONObject().put("decision",decision));}catch(Exception e){toast("응답을 전달하지 못했습니다");}}
     private void settings(){
@@ -337,7 +349,7 @@ public final class AgentActivity extends Activity {
         button(body,"ChatGPT 로그인",()->login(false));button(body,"기기 코드로 로그인",()->login(true));
         button(body,"계정 새로고침",()->service.submit(service::refreshAccount,e->{if(e!=null)toast("계정 확인 실패");render();}));
         button(body,"로그아웃",()->service.submit(service::logout,e->{if(e!=null)toast("진행 중인 대화를 마친 뒤 다시 시도해 주세요");render();}));
-        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.9.1\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\",\"shellProbe\":\""+service.shellProbe+"\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
+        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.9.2\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\",\"shellProbe\":\""+service.shellProbe+"\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
     }
     private void login(boolean device){service.submit(()->service.login(device),e->{if(e!=null){toast("로그인을 시작하지 못했습니다");return;}if(!service.loginCode.isEmpty())new AlertDialog.Builder(this).setTitle("로그인 코드").setMessage(service.loginCode).setPositiveButton("복사",(d,n)->((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("로그인 코드",service.loginCode))).show();try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(service.loginUrl)));}catch(Exception ex){toast("브라우저를 열지 못했습니다");}});}
     private void rememberLocation(){if(!workspace.isEmpty())getSharedPreferences("navigation",0).edit().putString("workspace",workspace).putString("session",session).apply();}

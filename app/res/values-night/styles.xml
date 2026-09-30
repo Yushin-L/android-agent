@@ -1,5 +1,12 @@
 <resources>
     <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">@font/pretendard</item>
+        <item name="android:alertDialogTheme">@style/AgentDialog</item>
+        <item name="android:textAppearanceLargePopupMenu">@style/AgentPopupText</item>
+        <item name="android:textAppearanceSmallPopupMenu">@style/AgentPopupText</item>
+        <item name="android:popupMenuStyle">@style/AgentPopupMenu</item>
+        <item name="android:popupWindowStyle">@style/AgentPopupWindow</item>
+        <item name="android:colorControlHighlight">@color/dialog_ripple</item>
         <item name="android:colorAccent">#80D9AE</item>
         <item name="android:windowBackground">#151C18</item>
         <item name="android:colorBackground">#151C18</item>

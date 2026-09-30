@@ -1,6 +1,6 @@
 # Android app
 
-제품 소스의 빌드 진입점이다. GUI 작업 공간·Codex 세션·지속 연결·네이티브 화면을 포함한다. M2 완료 조건과 화면 검증은 진행 중이다.
+제품 소스의 빌드 진입점이다. GUI 작업 공간·Codex 세션·지속 연결·네이티브 화면을 포함한다. M2 구현을 완료했고 검증 범위와 남은 실기기 확인 항목은 GitHub 이슈에 기록했다.
 진행과 완료 증거: https://github.com/Yushin-L/android-agent/milestone/3
 
 ## 빌드

@@ -55,6 +55,16 @@ public final class WorkspaceFiles {
             }finally{c.disconnect();}
         }throw new IOException("DOWNLOAD_REDIRECT_LIMIT");
     }
+    /** Validate the entire selection before any mutation, and collapse overlapping paths. */
+    public synchronized java.util.List<String> deletionPaths(String id,java.util.Collection<String> paths)throws IOException{
+        java.util.Set<String> unique=new java.util.LinkedHashSet<>();
+        for(String path:paths){Path target=resolve(id,path);String relative=root(id).relativize(target).toString();
+            if(relative.isEmpty())throw new IOException("WORKSPACE_ROOT_DELETE_DENIED");
+            if(!Files.exists(target,java.nio.file.LinkOption.NOFOLLOW_LINKS))throw new IOException("FILE_NOT_FOUND");unique.add(relative);}
+        java.util.List<String> result=new java.util.ArrayList<>();
+        for(String path:unique){boolean child=false;for(String parent:unique)if(path.startsWith(parent+"/")){child=true;break;}if(!child)result.add(path);}
+        return result;
+    }
     public synchronized void deleteEntry(String id,String name)throws Exception{
         Path workspace=root(id),target=resolve(id,name);if(target.equals(workspace))throw new IOException("WORKSPACE_ROOT_DELETE_DENIED");
         if(!Files.exists(target,LinkOption.NOFOLLOW_LINKS))throw new IOException("FILE_NOT_FOUND");

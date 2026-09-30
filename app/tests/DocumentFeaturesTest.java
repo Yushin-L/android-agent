@@ -27,6 +27,9 @@ public class DocumentFeaturesTest {
   store.markDeletedPath(a,"dir");files.deleteEntry(a,"dir");store.removeAttachmentPath(a,"dir");
   check(!Files.exists(files.resolve(a,"dir")));check(Files.exists(outside.resolve("keep")));check(files.read(b,"keep.md").equals("other workspace"));check(files.read(a,"dir-other/keep.md").equals("keep"));
   check(store.attachments(a,"session").length()==1);WorkspaceStore restored=new WorkspaceStore(root.resolve("state.json"));check(restored.deletedPath(a,"dir/nested/file.md"));check(!restored.deletedPath(a,"dir-other/keep.md"));
+  check(files.deletionPaths(a,Arrays.asList("dir-other/keep.md","dir-other","dir-other")).equals(Arrays.asList("dir-other")));
+  reject(()->files.deletionPaths(a,Arrays.asList("dir-other/keep.md","../escape")));check(Files.exists(files.resolve(a,"dir-other/keep.md")));
+  reject(()->files.deletionPaths(a,Arrays.asList("dir-other/keep.md","")));reject(()->files.deletionPaths(a,Arrays.asList("dir-other/keep.md","missing")));
   files.deleteEntry(a,"dir-other/keep.md");check(Files.isDirectory(files.resolve(a,"dir-other")));reject(()->files.deleteEntry(a,"missing"));
   System.out.println("PASS Markdown AST/table/incomplete streams, URL and local-preview boundaries, file/folder deletion without following symlinks, root/escape denial, attachment cleanup and persistent deletion markers");
  }

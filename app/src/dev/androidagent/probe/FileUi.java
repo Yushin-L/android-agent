@@ -50,7 +50,7 @@ final class FileUi {
     void browse(String workspace,String directory){showBrowser(workspace,directory,null);}
     private void showBrowser(String workspace,String directory,Bundle saved){
         final int request=++browserGeneration;if(browser!=null)browser.close();
-        try{browser=new FileBrowser(activity,service,workspace,directory,saved,(w,p)->preview(w,p,WorkspaceProvider.mime(p),()->request==browserGeneration&&browser!=null&&browser.showing()),this::actions);browser.show();}
+        try{browser=new FileBrowser(activity,service,workspace,directory,saved,(w,p)->preview(w,p,WorkspaceProvider.mime(p),()->request==browserGeneration&&browser!=null&&browser.showing()),this::actions,this::confirmDelete);browser.show();}
         catch(Exception e){toast("쓰레드 파일을 열지 못했습니다");}
     }
     void destroy(){if(document!=null)document.close();browserGeneration++;if(browser!=null)browser.close();}
@@ -73,13 +73,18 @@ final class FileUi {
         }).show();
     }
     private void confirmDelete(String workspace,String path,boolean folder){
-        AlertDialog confirm=new AlertDialog.Builder(activity).setTitle(folder?"폴더를 삭제할까요?":"파일을 삭제할까요?")
-            .setMessage(path+(folder?"\n\n폴더 안의 파일과 하위 폴더도 모두 삭제됩니다.":"")+"\n삭제한 항목은 복구할 수 없습니다. 폰에 따로 저장한 사본은 유지됩니다.")
+        confirmDelete(workspace,java.util.Collections.singletonList(path));
+    }
+    private void confirmDelete(String workspace,java.util.List<String> selection){
+        final java.util.List<String> paths=new java.util.ArrayList<>(selection);if(paths.isEmpty())return;
+        StringBuilder names=new StringBuilder();for(int i=0;i<Math.min(paths.size(),10);i++)names.append(paths.get(i)).append("\n");if(paths.size()>10)names.append("외 ").append(paths.size()-10).append("개\n");
+        AlertDialog confirm=new AlertDialog.Builder(activity).setTitle(paths.size()+"개 항목을 삭제할까요?")
+            .setMessage(names.toString()+"\n선택한 폴더의 하위 항목도 모두 삭제됩니다."+"\n삭제한 항목은 복구할 수 없습니다. 폰에 따로 저장한 사본은 유지됩니다.")
             .setNegativeButton("취소",null).setPositiveButton("삭제",null).create();confirm.show();
         confirm.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{confirm.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
-            service.submit(()->service.deleteFile(workspace,path),error->{if(activity.isDestroyed())return;confirm.dismiss();
+            service.submit(()->service.deleteFiles(workspace,paths),error->{if(activity.isDestroyed())return;confirm.dismiss();
                 if(error==null){toast("삭제했습니다");if(document!=null)document.close();}
-                else toast("WORKSPACE_BUSY".equals(error.getMessage())?"이 쓰레드의 실행 중인 작업을 마친 뒤 삭제해 주세요":"삭제를 완료하지 못했습니다. 남은 파일 목록을 확인해 주세요.");
+                else toast(error.getMessage()!=null&&error.getMessage().startsWith("PARTIAL_DELETE:")?"일부 삭제 완료 ("+error.getMessage().substring(15)+"). 남은 항목을 확인해 주세요":"WORKSPACE_BUSY".equals(error.getMessage())?"이 쓰레드의 실행 중인 작업을 마친 뒤 삭제해 주세요":"삭제를 완료하지 못했습니다. 남은 파일 목록을 확인해 주세요.");
                 if(browser!=null)browser.reload(workspace);changed.run();
             });
         });

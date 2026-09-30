@@ -100,7 +100,7 @@ public final class AgentService extends Service implements AppServerConnection.L
         checkRunning();
         if(connection!=null&&!connection.isClosed())return connection;
         connection=new AppServerConnection(runtime.start(),this);
-        try {connection.call("initialize",new JSONObject().put("clientInfo",new JSONObject().put("name","android_agent").put("version","0.10.0"))
+        try {connection.call("initialize",new JSONObject().put("clientInfo",new JSONObject().put("name","android_agent").put("version","0.10.1"))
             .put("capabilities",new JSONObject().put("experimentalApi",true)),20000);
         connection.notify("initialized",new JSONObject());probeShell(connection);return connection;
         } catch(Exception e){connection.close();connection=null;throw e;}
@@ -185,6 +185,10 @@ public final class AgentService extends Service implements AppServerConnection.L
         String id=store.create(name);files.root(id);String session=sessions.create(files.root(id).toString());store.attach(id,session);return id;
     }
     public String newSession(String workspace) throws Exception {store.get(workspace);String id=sessions.create(files.root(workspace).toString());store.attach(workspace,id);return id;}
+    public synchronized int deleteFiles(String owner,java.util.List<String> paths)throws Exception{
+        java.util.List<String> checked=files.deletionPaths(owner,paths);int deleted=0;
+        for(String path:checked){try{deleteFile(owner,path);deleted++;}catch(Exception e){if(deleted==0)throw e;throw new IOException("PARTIAL_DELETE:"+deleted+"/"+checked.size(),e);}}return deleted;
+    }
     public synchronized void deleteFile(String owner,String path)throws Exception{
         JSONArray entries=store.get(owner).getJSONArray("sessions");
         for(int i=0;i<entries.length();i++)if(sessions.busy(entries.getJSONObject(i).getString("id")))throw new IOException("WORKSPACE_BUSY");

@@ -16,7 +16,7 @@ python3 app/prepare_markdown.py
 docker run --rm --network none --user "$(id -u):$(id -g)" -v "$PWD/app:/work" android-agent-builder
 ```
 
-출력: `app/artifacts/android-agent-0.10.0-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
+출력: `app/artifacts/android-agent-0.10.1-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
 런타임 아카이브의 SHA-512를 검사한 뒤 APK용 helper 이름만 동일 길이로 교체한다.
 출처·원본/수정 SHA-256·패치 위치는 `assets/runtime-provenance.json`에 기록된다.
 Codex의 Apache-2.0 고지는 `assets/CODEX-LICENSE`, `CODEX-NOTICE`에 포함된다.
@@ -113,3 +113,7 @@ APK 빌드·리소스 링크·서명과 정적 검토 범위다. 실기기 키�
 파일/폴더 더보기에서 삭제할 수 있다. 확인 창을 거쳐 하위 항목까지 삭제하며, 실행 중인 쓰레드와 파일 작업이 있으면 거부한다. 작업 폴더 루트/경로 탈출을 차단하고 하위 symlink 대상은 따라가지 않는다. 삭제 후 첨부 초안을 정리하며, 생성 이미지가 재개 시 자동으로 다시 복사되지 않도록 삭제 경로를 저장한다. 부분 실패는 남은 목록을 확인하도록 표시한다. 외부 사본과 Codex 원본 기록은 유지한다.
 
 의존성은 `markdown-dependencies.json`의 버전·SHA-256으로 고정하며 `prepare_markdown.py`로 준비한다. 오프라인 빌드는 무결성 검사를 통과해야 한다. 바이너리는 downloads에만 두고 Git에서 제외하며 BSD-2-Clause 고지는 `assets/COMMONMARK-LICENSE`에 포함한다. `DocumentFeaturesTest`는 Markdown 구문/불완전 스트림, URL/로컬 경계, 삭제/초안 정리/삭제 경로 지속성을 검증한다. 실제 Android 렌더링·복사·WebView·터치·큰 글씨는 별도 실기기 확인 대상이다.
+
+## 0.10.1: 도구 그룹·파일 선택
+
+연속 도구 2개 이상을 바깥 접기 그룹으로 묶는다. 파일을 길게 눌러 체크박스로 여러 항목을 선택해 삭제하거나, 왼쪽으로 밀어 삭제 확인을 연다. 현재 폴더의 표시 항목만 선택하며 폴더 이동 시 해제한다. 전체 경로를 검사한 뒤 순서대로 삭제하고 부분 실패 시 완료 개수를 안내한다. 원자적 일괄 삭제는 아니다. 설계·검증: [#40](https://github.com/Yushin-L/android-agent/issues/40). Android 제스처 실기기 확인은 별도 필요하다.

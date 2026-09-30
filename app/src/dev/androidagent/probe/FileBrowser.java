@@ -13,11 +13,17 @@ import java.util.*;
 
 /** A single navigable workspace surface; late filesystem callbacks never reopen it. */
 final class FileBrowser {
+    interface Delete {void delete(String owner,List<String> paths);}
     interface Open {void open(String owner,String path);}
     private final AgentActivity activity;
     private final AgentService service;
     private final String owner;
     private final Open open,actions;
+    private final Delete delete;
+    private final Set<String> selected=new LinkedHashSet<>();
+    private boolean selecting;
+    private LinearLayout selectionBar;
+    private Button selectionDelete;
     private final Dialog dialog;
     private final LinearLayout crumbs;
     private final HorizontalScrollView trail;
@@ -33,9 +39,10 @@ final class FileBrowser {
     private boolean closed,loading,loadError;
     private AlertDialog folderDialog;
 
-    FileBrowser(AgentActivity activity,AgentService service,String owner,String path,Bundle saved,Open open,Open actions)throws Exception{
-        this.activity=activity;this.service=service;this.owner=owner;this.open=open;this.actions=actions;
+    FileBrowser(AgentActivity activity,AgentService service,String owner,String path,Bundle saved,Open open,Open actions,Delete delete)throws Exception{
+        this.activity=activity;this.service=service;this.owner=owner;this.open=open;this.actions=actions;this.delete=delete;
         directory=path;if(saved!=null){directory=saved.getString("directory",path);order=saved.getString("order","name");restorePosition=saved.getInt("position",0);}
+        if(saved!=null){selecting=saved.getBoolean("selecting");ArrayList<String> paths=saved.getStringArrayList("selected");if(paths!=null)selected.addAll(paths);}
         dialog=new Dialog(activity){@Override public void onBackPressed(){up();}};
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         LinearLayout root=column();root.setBackgroundColor(activity.fileColor("background"));root.setPadding(dp(16),dp(8),dp(16),dp(8));root.setFitsSystemWindows(true);
@@ -45,14 +52,18 @@ final class FileBrowser {
         TextView workspace=text(service.store.get(owner).getString("name"),13,true);workspace.setSingleLine(true);workspace.setEllipsize(TextUtils.TruncateAt.END);heading.addView(workspace);toolbar.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
         toolbar.addView(icon("refresh","현재 폴더 새로고침",()->load(false)),new LinearLayout.LayoutParams(dp(48),dp(48)));
         ImageButton more=icon("more","정렬 및 새 폴더",()->{});toolbar.addView(more,new LinearLayout.LayoutParams(dp(48),dp(48)));more.setOnClickListener(v->{
-            PopupMenu menu=new PopupMenu(activity,more);menu.getMenu().add(0,1,0,"새 폴더");
+            PopupMenu menu=new PopupMenu(activity,more);menu.getMenu().add(0,1,0,"새 폴더");menu.getMenu().add(0,4,3,"항목 선택");
             menu.getMenu().add(1,2,1,"이름순").setCheckable(true).setChecked(order.equals("name"));
             menu.getMenu().add(1,3,2,"크기순 · 큰 파일부터").setCheckable(true).setChecked(order.equals("size"));
-            menu.getMenu().setGroupCheckable(1,true,true);menu.setOnMenuItemClickListener(item->{if(item.getItemId()==1)newFolder();else{sort(item.getItemId()==2?"name":"size");}return true;});menu.show();
+            menu.getMenu().setGroupCheckable(1,true,true);menu.setOnMenuItemClickListener(item->{if(item.getItemId()==1)newFolder();else if(item.getItemId()==4){selecting=true;selectionChanged();}else{sort(item.getItemId()==2?"name":"size");}return true;});menu.show();
         });
         trail=new HorizontalScrollView(activity);trail.setHorizontalScrollBarEnabled(false);crumbs=row();trail.addView(crumbs);root.addView(trail,new LinearLayout.LayoutParams(-1,-2));
         search=new EditText(activity);search.setSingleLine(true);search.setTextSize(16);search.setTypeface(activity.fileFont());search.setTextColor(activity.fileColor("text"));search.setHintTextColor(activity.fileColor("muted"));search.setHint("현재 폴더에서 이름 검색");search.setContentDescription("현재 폴더에서 이름 검색");search.setMinHeight(dp(48));search.setPadding(dp(12),dp(8),dp(12),dp(8));search.setBackground(surface());root.addView(search,new LinearLayout.LayoutParams(-1,-2));
         summary=text("파일을 불러오는 중…",13,true);summary.setPadding(dp(8),dp(12),dp(8),dp(8));summary.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);root.addView(summary);
+        selectionBar=row();root.addView(selectionBar);
+        Button cancel=selectionButton("취소",()->clearSelection());selectionBar.addView(cancel);
+        Button selectAll=selectionButton("전체 선택",()->{for(JSONObject file:visible)selected.add(file.optString("path"));selectionChanged();});selectionBar.addView(selectAll);
+        selectionDelete=selectionButton("삭제",()->delete.delete(owner,new ArrayList<>(selected)));selectionBar.addView(selectionDelete,new LinearLayout.LayoutParams(0,-2,1));selectionChanged();
         FrameLayout contents=new FrameLayout(activity);root.addView(contents,new LinearLayout.LayoutParams(-1,0,1));
         list=new ListView(activity);list.setDivider(null);list.setAdapter(adapter);list.setClipToPadding(false);list.setPadding(0,0,0,dp(16));contents.addView(list,new FrameLayout.LayoutParams(-1,-1));
         LinearLayout emptyBox=column();emptyBox.setGravity(Gravity.CENTER);emptyBox.setPadding(dp(24),dp(24),dp(24),dp(24));
@@ -66,7 +77,7 @@ final class FileBrowser {
     void show(){dialog.show();Window window=dialog.getWindow();window.setBackgroundDrawable(new ColorDrawable(activity.fileColor("background")));window.setLayout(-1,-1);load(true);}
     boolean showing(){return !closed&&dialog.isShowing();}
     void close(){closed=true;generation++;if(folderDialog!=null)folderDialog.dismiss();dialog.dismiss();}
-    Bundle save(){Bundle b=new Bundle();b.putString("owner",owner);b.putString("directory",directory);b.putString("order",order);b.putString("query",search.getText().toString());b.putInt("position",list.getFirstVisiblePosition());return b;}
+    Bundle save(){Bundle b=new Bundle();b.putBoolean("selecting",selecting);b.putStringArrayList("selected",new ArrayList<>(selected));b.putString("owner",owner);b.putString("directory",directory);b.putString("order",order);b.putString("query",search.getText().toString());b.putInt("position",list.getFirstVisiblePosition());return b;}
     private int dp(int value){return Math.round(value*activity.getResources().getDisplayMetrics().density);}
     private LinearLayout column(){LinearLayout l=new LinearLayout(activity);l.setOrientation(LinearLayout.VERTICAL);return l;}
     private LinearLayout row(){LinearLayout l=new LinearLayout(activity);l.setGravity(Gravity.CENTER_VERTICAL);return l;}
@@ -74,8 +85,8 @@ final class FileBrowser {
     private Drawable surface(){GradientDrawable d=new GradientDrawable();d.setColor(activity.fileColor("surface"));d.setCornerRadius(dp(12));return d;}
     private void touch(View view){android.util.TypedValue v=new android.util.TypedValue();activity.getTheme().resolveAttribute(android.R.attr.selectableItemBackground,v,true);view.setBackgroundResource(v.resourceId);}
     private ImageButton icon(String name,String label,Runnable action){ImageButton b=new ImageButton(activity);b.setImageDrawable(new Glyph(name,activity.fileColor("accent")));b.setPadding(dp(12),dp(12),dp(12),dp(12));b.setContentDescription(label);b.setTooltipText(label);touch(b);b.setOnClickListener(v->action.run());return b;}
-    private void up(){if(directory.isEmpty())close();else{int slash=directory.lastIndexOf('/');navigate(slash<0?"":directory.substring(0,slash));}}
-    private void navigate(String path){positions.put(directory,list.getFirstVisiblePosition());directory=path;search.setText("");restorePosition=positions.getOrDefault(path,0);load(true);}
+    private void up(){if(selecting){clearSelection();return;}if(directory.isEmpty())close();else{int slash=directory.lastIndexOf('/');navigate(slash<0?"":directory.substring(0,slash));}}
+    private void navigate(String path){clearSelection();positions.put(directory,list.getFirstVisiblePosition());directory=path;search.setText("");restorePosition=positions.getOrDefault(path,0);load(true);}
     private void breadcrumbs(){crumbs.removeAllViews();addCrumb("파일 홈","");String path="";if(!directory.isEmpty())for(String part:directory.split("/")){TextView separator=text("›",17,true);separator.setPadding(dp(4),0,dp(4),0);crumbs.addView(separator);path=path.isEmpty()?part:path+"/"+part;addCrumb(part,path);}trail.post(()->trail.fullScroll(View.FOCUS_RIGHT));}
     private void addCrumb(String label,String path){Button b=new Button(activity);b.setText(label);b.setAllCaps(false);b.setTypeface(activity.fileFont());b.setTextSize(14);b.setTextColor(activity.fileColor(path.equals(directory)?"text":"accent"));b.setMinHeight(dp(48));b.setMinimumHeight(dp(48));b.setMinWidth(0);b.setMinimumWidth(0);b.setMaxWidth(dp(180));b.setSingleLine(true);b.setEllipsize(TextUtils.TruncateAt.MIDDLE);touch(b);b.setContentDescription(label+(path.equals(directory)?" · 현재 폴더":" · 폴더로 이동"));b.setOnClickListener(v->{if(!path.equals(directory))navigate(path);});crumbs.addView(b);}
     private void load(boolean restore){
@@ -96,10 +107,15 @@ final class FileBrowser {
         visible.sort((a,b)->{boolean ad=a.optBoolean("directory"),bd=b.optBoolean("directory");if(ad!=bd)return ad?-1:1;
             if(order.equals("size")&&!ad){int c=Long.compare(b.optLong("size"),a.optLong("size"));if(c!=0)return c;}
             return collator.compare(new File(a.optString("path")).getName(),new File(b.optString("path")).getName());});
-        adapter.notifyDataSetChanged();
+        if(!loading){Set<String> shown=new HashSet<>();for(JSONObject file:visible)shown.add(file.optString("path"));selected.retainAll(shown);}
+        selectionChanged();
         summary.setText(loading?"파일을 불러오는 중…":"폴더 "+folders+" · 파일 "+files+"  ·  "+(order.equals("name")?"이름순":"크기순")+(all.size()>=1000?" · 최대 1,000개 표시":""));
         empty.setText(loading?"폴더를 불러오는 중…":query.isEmpty()?"아직 파일이 없습니다\n이 폴더에 저장한 파일이 여기에 나타납니다":"일치하는 이름이 없습니다");retry.setVisibility(View.GONE);
     }
+    private Button selectionButton(String label,Runnable action){Button b=new Button(activity);b.setText(label);b.setTextSize(14);b.setTypeface(activity.fileFont());b.setMinHeight(dp(48));b.setOnClickListener(v->action.run());return b;}
+    private void selectionChanged(){if(selectionBar!=null){selectionBar.setVisibility(selecting?View.VISIBLE:View.GONE);selectionDelete.setText("삭제 ("+selected.size()+")");selectionDelete.setEnabled(!selected.isEmpty());}adapter.notifyDataSetChanged();}
+    private void clearSelection(){selecting=false;selected.clear();selectionChanged();}
+    private void toggle(String path){if(!selected.remove(path))selected.add(path);selectionChanged();}
     private void newFolder(){
         final String parent=directory;EditText name=new EditText(activity);name.setSingleLine(true);name.setHint("폴더 이름");name.setContentDescription("새 폴더 이름");name.setTextSize(17);name.setTypeface(activity.fileFont());
         LinearLayout form=column();form.setPadding(dp(24),dp(8),dp(24),0);form.addView(name);
@@ -120,8 +136,9 @@ final class FileBrowser {
             String kind=folder?"폴더":mime.startsWith("image/")?"이미지":mime.startsWith("video/")?"동영상":mime.startsWith("audio/")?"오디오":name.lastIndexOf('.')>0?name.substring(name.lastIndexOf('.')+1).toUpperCase(Locale.ROOT)+" 파일":"파일";
             h.name.setText(name);h.detail.setText(folder?"폴더":kind+" · "+FileUi.size(file.optLong("size")));
             h.picture.setImageDrawable(new Glyph(folder?"folder":mime.startsWith("image/")?"image":"file",activity.fileColor(folder?"accent":"muted")));
-            h.primary.setContentDescription(name+" · "+h.detail.getText());h.primary.setOnClickListener(v->{if(folder)navigate(path);else open.open(owner,path);});
-            h.menu.setVisibility(View.VISIBLE);h.menu.setContentDescription(name+(folder?" · 폴더 메뉴":" · 저장·공유·삭제"));h.menu.setOnClickListener(v->actions.open(owner,path));return recycled;
+            h.primary.animate().cancel();h.primary.setTranslationX(0);h.path=path;h.swiping=false;h.check.setVisibility(selecting?View.VISIBLE:View.GONE);h.check.setOnCheckedChangeListener(null);h.check.setChecked(selected.contains(path));h.check.setContentDescription(name+" 선택");h.check.setOnCheckedChangeListener((v,checked)->toggle(path));
+            h.primary.setContentDescription(name+" · "+h.detail.getText());h.primary.setOnLongClickListener(v->{selecting=true;selected.add(path);selectionChanged();return true;});h.primary.setOnClickListener(v->{if(selecting){toggle(path);return;}if(folder)navigate(path);else open.open(owner,path);});
+            h.menu.setVisibility(selecting?View.GONE:View.VISIBLE);h.menu.setContentDescription(name+(folder?" · 폴더 메뉴":" · 저장·공유·삭제"));h.menu.setOnClickListener(v->actions.open(owner,path));return recycled;
         }
     }
     private final class Holder {
@@ -129,11 +146,31 @@ final class FileBrowser {
         final LinearLayout primary=new LinearLayout(activity){@Override public CharSequence getAccessibilityClassName(){return Button.class.getName();}};
         final TextView name=text("",17,false),detail=text("",13,true);
         final ImageView picture=new ImageView(activity);
+        final CheckBox check=new CheckBox(activity);
+        String path="";float startX,startY;boolean swiping,vertical;
         final ImageButton menu=icon("more","파일 메뉴",()->{});
-        Holder(){primary.setGravity(Gravity.CENTER_VERTICAL);primary.setMinimumHeight(dp(80));primary.setPadding(dp(8),dp(12),dp(8),dp(12));primary.setFocusable(true);touch(primary);
+        Holder(){row.addView(check,new LinearLayout.LayoutParams(dp(48),dp(48)));
+            primary.setOnTouchListener((v,event)->{
+                if(selecting)return false;
+                float dx=event.getX()+primary.getTranslationX()-startX,dy=event.getY()-startY;
+                switch(event.getActionMasked()){
+                    case MotionEvent.ACTION_DOWN:startX=event.getX();startY=event.getY();swiping=false;vertical=false;break;
+                    case MotionEvent.ACTION_POINTER_DOWN:resetSwipe();vertical=true;return true;
+                    case MotionEvent.ACTION_MOVE:
+                        if(event.getPointerCount()!=1){vertical=true;break;}
+                        int slop=ViewConfiguration.get(activity).getScaledTouchSlop();
+                        if(!swiping&&!vertical&&Math.abs(dy)>slop&&Math.abs(dy)>=Math.abs(dx))vertical=true;
+                        if(!swiping&&!vertical&&dx < -slop&&-dx>Math.abs(dy)*1.5f){swiping=true;primary.cancelLongPress();primary.setPressed(false);primary.getParent().requestDisallowInterceptTouchEvent(true);}
+                        if(swiping){primary.setTranslationX(Math.max(-dp(112),Math.min(0,dx)));return true;}break;
+                    case MotionEvent.ACTION_UP:
+                        if(swiping){boolean confirm=event.getPointerCount()==1&&dx < -dp(72);resetSwipe();if(confirm)delete.delete(owner,Collections.singletonList(path));return true;}break;
+                    case MotionEvent.ACTION_CANCEL:resetSwipe();break;
+                }return false;
+            });primary.setGravity(Gravity.CENTER_VERTICAL);primary.setMinimumHeight(dp(80));primary.setPadding(dp(8),dp(12),dp(8),dp(12));primary.setFocusable(true);touch(primary);
             picture.setPadding(dp(8),dp(8),dp(8),dp(8));picture.setBackground(surface());picture.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);primary.addView(picture,new LinearLayout.LayoutParams(dp(44),dp(44)));
             LinearLayout labels=column();labels.setPadding(dp(12),0,0,0);labels.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);name.setMaxLines(2);name.setEllipsize(TextUtils.TruncateAt.END);name.setLineSpacing(dp(3),1);labels.addView(name);detail.setPadding(0,dp(4),0,0);detail.setSingleLine(true);detail.setEllipsize(TextUtils.TruncateAt.END);labels.addView(detail);primary.addView(labels,new LinearLayout.LayoutParams(0,-2,1));row.addView(primary,new LinearLayout.LayoutParams(0,-2,1));row.addView(menu,new LinearLayout.LayoutParams(dp(48),dp(48)));
         }
+        private void resetSwipe(){swiping=false;primary.setPressed(false);primary.getParent().requestDisallowInterceptTouchEvent(false);primary.animate().translationX(0).setDuration(android.animation.ValueAnimator.areAnimatorsEnabled()?150:0).start();}
     }
     private static final class Glyph extends Drawable {
         private final String kind;private final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);

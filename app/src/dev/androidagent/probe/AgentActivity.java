@@ -271,12 +271,32 @@ public final class AgentActivity extends Activity {
             boolean failed=phase.equals("failed")||phase.equals("error")||(phase.equals("disconnected")||phase.equals("unknown")||phase.equals("interrupted"));status.setVisibility(busy||failed?View.VISIBLE:View.GONE);
             JSONArray items=service.sessions.items(session);String stamp=items.toString();
             if(!stamp.equals(shownItems)){boolean bottom=scroll.getChildAt(0).getHeight()-scroll.getHeight()-scroll.getScrollY()<dp(80);messages.removeAllViews();
-                for(int i=0;i<items.length();i++){JSONObject item=items.getJSONObject(i);String type=item.optString("type"),value="";
-                    if(type.equals("commandExecution")){commandCard(item);continue;}
+                for(int i=0;i<items.length();i++){
+                    JSONObject item=items.getJSONObject(i);
+                    int end=i+1;if(isTool(item))while(end<items.length()&&isTool(items.getJSONObject(end)))end++;
+                    if(end-i>1){toolGroup(items,i,end);i=end-1;}else renderItem(messages,item);
+                }shownItems=stamp;if(bottom)latestMessages(false);
+            }
+            AgentService.Question q=service.question(session);if(q==null&&approvalDialog!=null){approvalDialog.dismiss();approvalDialog=null;}if(q!=null&&!q.key.equals(shownQuestion)){shownQuestion=q.key;showQuestion(q);}
+        }catch(Exception e){status.setText("대화 표시 오류 · 다시 열어 주세요");}
+    }
+    private boolean isTool(JSONObject item){String type=item.optString("type");return type.equals("commandExecution")||type.equals("dynamicToolCall")||type.equals("mcpToolCall")||type.equals("fileChange")||type.equals("imageGeneration");}
+    private void toolGroup(JSONArray items,int start,int end)throws Exception{
+        final String key=session+":group:"+items.getJSONObject(start).getString("id");
+        LinearLayout card=column(),contents=column();messages.addView(card);
+        String label="도구 실행 "+(end-start)+"개";
+        boolean running=false,failed=false;for(int n=start;n<end;n++){JSONObject tool=items.getJSONObject(n);String state=tool.optString("status");running|=state.equals("inProgress");failed|=state.equals("failed")||state.equals("declined")||(tool.has("success")&&!tool.optBoolean("success"));}if(running)label+=" · 실행 중";if(failed)label+=" · 실패·거절 포함";
+        final String title=label;Button toggle=button(card,"",()->{});toggle.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);toggle.setTextSize(14);card.addView(contents);
+        Runnable update=()->{boolean expanded=expandedCommands.contains(key);toggle.setText(title+(expanded?" · 접기":" · 펼치기"));if(Build.VERSION.SDK_INT>=30)toggle.setStateDescription(expanded?"펼쳐짐":"접힘");contents.removeAllViews();contents.setVisibility(expanded?View.VISIBLE:View.GONE);if(expanded)try{for(int n=start;n<end;n++)renderItem(contents,items.getJSONObject(n));}catch(Exception e){contents.addView(text("도구 표시 오류",14));}};
+        toggle.setOnClickListener(v->{if(!expandedCommands.remove(key))expandedCommands.add(key);update.run();});update.run();
+    }
+    private void renderItem(LinearLayout target,JSONObject item)throws Exception{
+                    String type=item.optString("type"),value="";
+                    if(type.equals("commandExecution")){commandCard(target,item);return;}
                     if(type.equals("agentMessage")){
                         String id=item.getString("id");MarkdownView rendered=markdownViews.get(id);
                         if(rendered==null){final String owner=workspace;rendered=new MarkdownView(this,url->fileUi.link(owner,"",url),()->scroll!=null&&scroll.getChildCount()>0&&scroll.getChildAt(0).getHeight()-scroll.getHeight()-scroll.getScrollY()<dp(80),()->latestMessages(false));markdownViews.put(id,rendered);}
-                        messages.addView(rendered,new LinearLayout.LayoutParams(-1,-2));rendered.setMarkdown(item.optString("text"));continue;
+                        target.addView(rendered,new LinearLayout.LayoutParams(-1,-2));rendered.setMarkdown(item.optString("text"));return;
                     }
                     else if(type.equals("userMessage")){JSONArray content=item.optJSONArray("content");if(content!=null)for(int j=0;j<content.length();j++)value+=content.getJSONObject(j).optString("text")+"\n";}
 
@@ -284,22 +304,18 @@ public final class AgentActivity extends Activity {
                     else if(type.equals("imageGeneration"))value="이미지 생성 · "+item.optString("status")+(item.has("fileError")?"\n"+item.optString("fileError"):"");
                     else value=(item.optString("tool","도구"))+" · "+(item.optBoolean("success")?"완료":item.optString("status"));
                     TextView message=text(value.trim(),type.endsWith("Message")?17:14);message.setTextIsSelectable(true);message.setLineSpacing(0,1f);message.setLineHeight(Math.round(android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,27,getResources().getDisplayMetrics())));message.setPadding(dp(12),dp(12),dp(12),dp(12));
-                    if(type.equals("userMessage")){GradientDrawable shape=new GradientDrawable();shape.setColor(surface);shape.setCornerRadius(dp(12));message.setBackground(shape);}messages.addView(message);
-                    if(type.equals("imageGeneration")&&item.optJSONObject("workspaceFile")!=null){JSONObject file=item.getJSONObject("workspaceFile");String path=file.getString("path"),owner=workspace;button(messages,"이미지 · "+path,()->fileUi.actions(owner,path));}
-                    if(type.equals("fileChange")){String owner=workspace;button(messages,"쓰레드 파일 보기",()->fileUi.browse(owner,""));}
+                    if(type.equals("userMessage")){GradientDrawable shape=new GradientDrawable();shape.setColor(surface);shape.setCornerRadius(dp(12));message.setBackground(shape);}target.addView(message);
+                    if(type.equals("imageGeneration")&&item.optJSONObject("workspaceFile")!=null){JSONObject file=item.getJSONObject("workspaceFile");String path=file.getString("path"),owner=workspace;button(target,"이미지 · "+path,()->fileUi.actions(owner,path));}
+                    if(type.equals("fileChange")){String owner=workspace;button(target,"쓰레드 파일 보기",()->fileUi.browse(owner,""));}
                     if(type.equals("dynamicToolCall")&&item.optBoolean("success")){
-                        JSONArray outputs=item.optJSONArray("contentItems");if(outputs!=null)for(int j=0;j<outputs.length();j++){try{JSONObject file=new JSONObject(outputs.getJSONObject(j).optString("text"));if(file.has("path")&&file.has("size")&&!file.optBoolean("directory")){String path=file.getString("path"),owner=workspace;button(messages,"파일 · "+path+" · "+FileUi.size(file.getLong("size")),()->fileUi.actions(owner,path));}}catch(Exception ignored){}}
+                        JSONArray outputs=item.optJSONArray("contentItems");if(outputs!=null)for(int j=0;j<outputs.length();j++){try{JSONObject file=new JSONObject(outputs.getJSONObject(j).optString("text"));if(file.has("path")&&file.has("size")&&!file.optBoolean("directory")){String path=file.getString("path"),owner=workspace;button(target,"파일 · "+path+" · "+FileUi.size(file.getLong("size")),()->fileUi.actions(owner,path));}}catch(Exception ignored){}}
                     }
-                }shownItems=stamp;if(bottom)latestMessages(false);
-            }
-            AgentService.Question q=service.question(session);if(q==null&&approvalDialog!=null){approvalDialog.dismiss();approvalDialog=null;}if(q!=null&&!q.key.equals(shownQuestion)){shownQuestion=q.key;showQuestion(q);}
-        }catch(Exception e){status.setText("대화 표시 오류 · 다시 열어 주세요");}
     }
-    private void commandCard(JSONObject item)throws Exception{
+    private void commandCard(LinearLayout target,JSONObject item)throws Exception{
         final String key=session+":"+item.getString("id"),owner=workspace;
         String state=item.optString("status");
         final String label="명령 실행 · "+(state.equals("completed")?"완료":state.equals("failed")?"실패":state.equals("declined")?"거절됨":state.equals("inProgress")?"실행 중":state);
-        LinearLayout card=column(),details=column();messages.addView(card);
+        LinearLayout card=column(),details=column();target.addView(card);
         Button toggle=button(card,"",()->{});toggle.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);toggle.setTextSize(14);
         card.addView(details);
         Runnable update=()->{
@@ -360,7 +376,7 @@ public final class AgentActivity extends Activity {
         button(body,"ChatGPT 로그인",()->login(false));button(body,"기기 코드로 로그인",()->login(true));
         button(body,"계정 새로고침",()->service.submit(service::refreshAccount,e->{if(e!=null)toast("계정 확인 실패");render();}));
         button(body,"로그아웃",()->service.submit(service::logout,e->{if(e!=null)toast("진행 중인 대화를 마친 뒤 다시 시도해 주세요");render();}));
-        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.10.0\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\",\"shellProbe\":\""+service.shellProbe+"\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
+        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.10.1\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\",\"shellProbe\":\""+service.shellProbe+"\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
     }
     private void login(boolean device){service.submit(()->service.login(device),e->{if(e!=null){toast("로그인을 시작하지 못했습니다");return;}if(!service.loginCode.isEmpty())new AlertDialog.Builder(this).setTitle("로그인 코드").setMessage(service.loginCode).setPositiveButton("복사",(d,n)->((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("로그인 코드",service.loginCode))).show();try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(service.loginUrl)));}catch(Exception ex){toast("브라우저를 열지 못했습니다");}});}
     private void rememberLocation(){if(!workspace.isEmpty())getSharedPreferences("navigation",0).edit().putString("workspace",workspace).putString("session",session).apply();}

@@ -15,6 +15,7 @@ public final class AgentService extends Service implements AppServerConnection.L
     public interface Result {void done(Exception error);}
     public static final class Question {
         public final String key,thread;public final JSONObject params;
+        public boolean approval;
         final CompletableFuture<JSONObject> answer=new CompletableFuture<>();
         Question(String key,String thread,JSONObject params){this.key=key;this.thread=thread;this.params=params;}
     }
@@ -27,6 +28,8 @@ public final class AgentService extends Service implements AppServerConnection.L
     private AndroidRuntime runtime;
     public WorkspaceStore store;
     public WorkspaceFiles files;
+    private GeneratedImages generatedImages;
+    public volatile String shellProbe="NOT_RUN";
     private final Map<String,Integer> fileJobs=new HashMap<>();
     private final ConcurrentMap<String,String> fileStatus=new ConcurrentHashMap<>();
     public String fileStatus(String id){return fileStatus.getOrDefault(id, "");}
@@ -38,6 +41,7 @@ public final class AgentService extends Service implements AppServerConnection.L
         super.onCreate();runtime=new AndroidRuntime(this);
         try {files=new WorkspaceFiles(new java.io.File(getFilesDir(),"workspaces").toPath(),new java.io.File(getCacheDir(),"file-jobs").toPath());store=new WorkspaceStore(new java.io.File(getFilesDir(),"workspaces.json").toPath());}
         catch(Exception e){error="쓰레드 목록을 읽지 못했습니다. 기존 데이터는 보존했습니다.";}
+        generatedImages=new GeneratedImages(files,runtime.home.toPath());
         sessions=new SessionController((method,params)->rpc().call(method,params,45000),runtime.workspace.getAbsolutePath(),this::changed);
         NotificationManager nm=getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel("agent", "진행 중인 대화",NotificationManager.IMPORTANCE_LOW));
@@ -60,10 +64,27 @@ public final class AgentService extends Service implements AppServerConnection.L
         if(connection!=null&&!connection.isClosed())return connection;
         if(destroyed)throw new IOException("SERVICE_CLOSED");
         connection=new AppServerConnection(runtime.start(),this);
-        try {connection.call("initialize",new JSONObject().put("clientInfo",new JSONObject().put("name","android_agent").put("version","0.8.0"))
+        try {connection.call("initialize",new JSONObject().put("clientInfo",new JSONObject().put("name","android_agent").put("version","0.8.1"))
             .put("capabilities",new JSONObject().put("experimentalApi",true)),20000);
-        connection.notify("initialized",new JSONObject());return connection;
+        connection.notify("initialized",new JSONObject());probeShell(connection);return connection;
         } catch(Exception e){connection.close();connection=null;throw e;}
+    }
+    private void probeShell(AppServerConnection wire){
+        java.nio.file.Path directory=null;
+        try{
+            directory=java.nio.file.Files.createTempDirectory(getFilesDir().toPath(),"shell-check-");
+            JSONObject policy=new JSONObject().put("type","workspaceWrite").put("writableRoots",new JSONArray().put(directory.toString())).put("networkAccess",false).put("excludeTmpdirEnvVar",true).put("excludeSlashTmp",true);
+            JSONObject response=wire.call("command/exec",new JSONObject().put("command",new JSONArray().put("/system/bin/sh").put("-c").put("printf shell-ok > first && cp first second && mv second final && cat final"))
+                .put("cwd",directory.toString()).put("sandboxPolicy",policy).put("timeoutMs",5000),10000);
+            shellProbe=response.optInt("exitCode",-1)==0&&java.nio.file.Files.exists(directory.resolve("final"))&&"shell-ok".equals(new String(java.nio.file.Files.readAllBytes(directory.resolve("final")),java.nio.charset.StandardCharsets.UTF_8))?"PASS_CREATE_COPY_MOVE":"FAILED_EXECUTION";
+        }catch(Exception e){shellProbe="FAILED_"+(e.getMessage()!=null&&e.getMessage().matches("RPC_ERROR_[-0-9]+")?e.getMessage():"STARTUP");}
+        finally{if(directory!=null)try(java.util.stream.Stream<java.nio.file.Path> paths=java.nio.file.Files.walk(directory)){for(java.nio.file.Path p:(Iterable<java.nio.file.Path>)paths.sorted(java.util.Comparator.reverseOrder())::iterator)java.nio.file.Files.deleteIfExists(p);}catch(Exception ignored){}changed();}
+    }
+    private void retainImages(String id)throws Exception{
+        String owner=store.owner(id);JSONArray items=sessions.items(id);
+        for(int i=0;i<items.length();i++){JSONObject item=items.getJSONObject(i);if(!item.optString("type").equals("imageGeneration")||!item.optString("status").equals("completed")||item.has("workspaceFile"))continue;
+            beginFiles(owner);try{sessions.imageFile(id,item.getString("id"),generatedImages.retain(owner,id,item),"");}catch(Exception e){sessions.imageFile(id,item.getString("id"),null,"생성 이미지 저장 경로를 확인하지 못했습니다");}finally{endFiles(owner);}
+        }
     }
     public void refreshAccount() throws Exception {
         JSONObject value=rpc().call("account/read",new JSONObject().put("refreshToken",false),15000).optJSONObject("account");
@@ -126,7 +147,7 @@ public final class AgentService extends Service implements AppServerConnection.L
         if(fileJobs.getOrDefault(id,0)>0)throw new IOException("WORKSPACE_BUSY");
         files.delete(id);store.delete(id);changed();
     }
-    public void loadSession(String id)throws Exception{String owner=store.owner(id);sessions.directory(id,files.root(owner).toString());sessions.load(id);}
+    public void loadSession(String id)throws Exception{String owner=store.owner(id);sessions.directory(id,files.root(owner).toString());sessions.load(id);retainImages(id);}
     private synchronized void beginFiles(String owner)throws Exception{store.get(owner);fileJobs.put(owner,fileJobs.getOrDefault(owner,0)+1);}
     private synchronized void endFiles(String owner){int n=fileJobs.getOrDefault(owner,1)-1;if(n==0)fileJobs.remove(owner);else fileJobs.put(owner,n);}
     private JSONObject toolResult(boolean success,JSONObject result)throws Exception{return new JSONObject().put("success",success).put("contentItems",new JSONArray().put(new JSONObject().put("type","inputText").put("text",result.toString())));}
@@ -153,7 +174,8 @@ public final class AgentService extends Service implements AppServerConnection.L
                     else {account="로그인 실패 · 다시 시도해 주세요";changed();}}
             } else {
                 sessions.notification(method,params);
-                if(method.equals("turn/completed")){String thread=params.optString("threadId");for(Question q:questions.values())if(q.thread.equals(thread))q.answer.complete(new JSONObject().put("answers",new JSONObject()));}
+                if(method.equals("item/completed")&&params.optJSONObject("item")!=null&&params.getJSONObject("item").optString("type").equals("imageGeneration")){String thread=params.optString("threadId");submit(()->retainImages(thread),e->{});}
+                if(method.equals("turn/completed")){String thread=params.optString("threadId");for(Question q:questions.values())if(q.thread.equals(thread))q.answer.complete(q.approval?new JSONObject().put("decision","cancel"):new JSONObject().put("answers",new JSONObject()));}
             }
         }catch(Exception e){error="응답 상태를 읽지 못했습니다. 대화를 다시 열어 주세요.";changed();}
     }
@@ -174,8 +196,12 @@ public final class AgentService extends Service implements AppServerConnection.L
             Question q=new Question(UUID.randomUUID().toString(),thread,new JSONObject(params.toString()));questions.put(q.key,q);changed();
             try{return q.answer.get(10,TimeUnit.MINUTES);}finally{questions.remove(q.key);changed();}
         }
-        // Native shell/patch writes are disabled; scoped workspace adapters handle file writes. Never silently grant an unexpected approval.
-        if(method.equals("item/commandExecution/requestApproval")||method.equals("item/fileChange/requestApproval"))return new JSONObject().put("decision","decline");
+        if(method.equals("item/commandExecution/requestApproval")||method.equals("item/fileChange/requestApproval")){
+            store.owner(thread);String turn=params.optString("turnId");if(!sessions.currentTurn(thread,turn))return new JSONObject().put("decision","cancel");
+            JSONObject preview=new JSONObject(params.toString());JSONArray items=sessions.items(thread);for(int i=0;i<items.length();i++){JSONObject item=items.getJSONObject(i);if(item.optString("id").equals(params.optString("itemId"))){if(!preview.has("command")&&item.has("command"))preview.put("command",item.get("command"));if(item.has("changes"))preview.put("changesPreview",item.getJSONArray("changes").toString(2));}}
+            Question q=new Question(UUID.randomUUID().toString(),thread,preview);q.approval=true;questions.put(q.key,q);changed();
+            try{JSONObject decision=q.answer.get(10,TimeUnit.MINUTES);return sessions.currentTurn(thread,turn)?decision:new JSONObject().put("decision","cancel");}finally{questions.remove(q.key);changed();}
+        }
         throw new IOException("UNSUPPORTED_SERVER_REQUEST");
     }
     @Override public void disconnected(){

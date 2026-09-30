@@ -11,7 +11,7 @@ Android 휴대폰 자체를 에이전트의 작업 환경으로 만드는 프로
 | [M0 · 제품 방향과 참조 조사](https://github.com/Yushin-L/android-agent/milestone/1) | 완료된 기준선 |
 | [M1 · Android Codex 실행 경로 검증](https://github.com/Yushin-L/android-agent/milestone/2) | 완료된 기준선 |
 | [M2 · 쓰레드·세션 관리와 대화 UI](https://github.com/Yushin-L/android-agent/milestone/3) | 구현 완료 · APK 0.7.5 |
-| [M3 · Android 행동 도구 확장](https://github.com/Yushin-L/android-agent/milestone/4) | 파일 작업 구현 · APK 0.8.0 · 실기기 확인 대기 |
+| [M3 · Android 행동 도구 확장](https://github.com/Yushin-L/android-agent/milestone/4) | 파일 작업 구현 · APK 0.8.1 · 실기기 확인 대기 |
 | [M4 · 실행 수명과 중단 복구](https://github.com/Yushin-L/android-agent/milestone/5) | 후속 작업 |
 | [M5 · 홈 통합과 배포 범위](https://github.com/Yushin-L/android-agent/milestone/6) | 후속 작업 |
 
@@ -23,11 +23,11 @@ Android 휴대폰 자체를 에이전트의 작업 환경으로 만드는 프로
 - 서브에이전트는 사용자의 대화 명령으로 활용하며, 기본 UI에 별도의 관리 화면이나 하위 작업 트리를 두지 않는다.
 - 디자인은 Linear의 차분한 구성, Material 3의 Android 상호작용, 민트 회색·녹색, Pretendard를 기준으로 한다.
 
-첨부·작업 폴더·파일 활용·팔레트의 설계와 검증은 [#29](https://github.com/Yushin-L/android-agent/issues/29), [#30](https://github.com/Yushin-L/android-agent/issues/30), [#31](https://github.com/Yushin-L/android-agent/issues/31), [#32](https://github.com/Yushin-L/android-agent/issues/32)에서 관리한다. 입력창 `+`로 사진/파일을 고르고, 대화 메뉴의 **쓰레드 파일**에서 열기·저장·공유한다. 업데이트 이전 대화의 새 파일 도구는 `/new`로 시작한 대화부터 제공한다.
+첨부·작업 폴더·파일 활용·팔레트의 설계와 검증은 [#29](https://github.com/Yushin-L/android-agent/issues/29), [#30](https://github.com/Yushin-L/android-agent/issues/30), [#31](https://github.com/Yushin-L/android-agent/issues/31), [#32](https://github.com/Yushin-L/android-agent/issues/32)에서 관리한다. 입력창 `+`로 사진/파일을 고르고, 대화 메뉴의 **쓰레드 파일**에서 열기·저장·공유한다. 0.8.1은 기존 대화 재개 시에도 Codex 기본 셸·파일 실행 설정을 적용하고 생성 이미지 보관을 연결한다. 앱 자체 dynamic 파일 도구는 `/new`로 만든 대화부터 제공한다.
 
 글꼴·화면 구조는 [설계 합의 #9](https://github.com/Yushin-L/android-agent/issues/9)를 따르고 색상은 [#32](https://github.com/Yushin-L/android-agent/issues/32)로 갱신했다. 제품 소스와 빌드 방법은 [app/README.md](app/README.md), 진행 증거는 [제품 앱 소스·빌드 구조 #10](https://github.com/Yushin-L/android-agent/issues/10)을 참고한다.
 
-M3의 앱·서비스 연결 설계와 실제 구현 근거는 [#23](https://github.com/Yushin-L/android-agent/issues/23), Notion MCP 후속 구현은 [#24](https://github.com/Yushin-L/android-agent/issues/24)에 있다. [APK 다운로드](http://140.245.79.96/android-agent/)에서 0.8.0을 받을 수 있다.
+M3의 앱·서비스 연결 설계와 실제 구현 근거는 [#23](https://github.com/Yushin-L/android-agent/issues/23), Notion MCP 후속 구현은 [#24](https://github.com/Yushin-L/android-agent/issues/24)에 있다. [APK 다운로드](http://140.245.79.96/android-agent/)에서 0.8.1을 받을 수 있다.
 
 ## 검증된 범위
 

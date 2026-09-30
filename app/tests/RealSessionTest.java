@@ -26,11 +26,14 @@ public class RealSessionTest {
  public static void main(String[]args)throws Exception{
   String binary=System.getenv("CODEX_CONTROL_BINARY");if(binary==null){System.out.println("SKIP real Linux control: CODEX_CONTROL_BINARY not set");return;}
   Path root=Files.createTempDirectory("agent-real-test-"),home=Files.createDirectory(root.resolve("home"));
-  Files.write(home.resolve("config.toml"),("model_provider = \"offline\"\nweb_search = \"disabled\"\n[model_providers.offline]\nname = \"Offline test\"\nbase_url = \"http://127.0.0.1:9/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nrequest_max_retries = 0\nstream_max_retries = 0\n[features]\nshell_tool = false\n[analytics]\nenabled = false\n[feedback]\nenabled = false\n").getBytes(StandardCharsets.UTF_8));
+  Files.write(home.resolve("config.toml"),("model_provider = \"offline\"\nweb_search = \"disabled\"\n[model_providers.offline]\nname = \"Offline test\"\nbase_url = \"http://127.0.0.1:9/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nrequest_max_retries = 0\nstream_max_retries = 0\n[features]\nshell_tool = true\n[analytics]\nenabled = false\n[feedback]\nenabled = false\n").getBytes(StandardCharsets.UTF_8));
   String id;Path workspace=Files.createDirectory(root.resolve("gui-workspace"));
   Path photo=workspace.resolve("pixel.png");Files.write(photo,java.util.Base64.getDecoder().decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII="));
   try(Runtime runtime=new Runtime(root,home,binary)){
    if(!runtime.connection.call("account/read",new JSONObject(),10000).isNull("account"))throw new AssertionError("account not isolated");
+   JSONObject command=runtime.connection.call("command/exec",new JSONObject().put("command",new JSONArray().put("/bin/sh").put("-c").put("printf binary-test > original; cp original copied; mv copied moved; cat moved"))
+    .put("cwd",workspace.toString()).put("timeoutMs",5000).put("sandboxPolicy",new JSONObject().put("type","externalSandbox").put("networkAccess","restricted")),10000);
+   if(command.getInt("exitCode")!=0||!new String(Files.readAllBytes(workspace.resolve("moved")),StandardCharsets.UTF_8).equals("binary-test"))throw new AssertionError("shell round trip failed");
    id=runtime.controller.create(workspace.toString());JSONArray models=runtime.connection.call("model/list",new JSONObject().put("limit",100),10000).getJSONArray("data");runtime.controller.send(id,"offline test message",ModelSelection.resolve(models,"",""),new JSONArray().put(new JSONObject().put("path","pixel.png").put("mime","image/png").put("absolutePath",photo.toString())));
    long deadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(20);
    boolean interrupted=false;

@@ -33,9 +33,10 @@ public final class AndroidRuntime {
         File ca=new File(root,"android-trust.pem");Files.write(ca.toPath(),pem.toString().getBytes(StandardCharsets.US_ASCII));
         String nativeDir=context.getApplicationInfo().nativeLibraryDir;
         String binary=new File(nativeDir,"libcodex.so").getAbsolutePath();
-        ProcessBuilder builder=new ProcessBuilder(binary,"app-server","--listen","stdio://","-c","features.shell_tool=false","-c","web_search=\"disabled\"").directory(workspace);
+        ProcessBuilder builder=new ProcessBuilder(binary,"app-server","--listen","stdio://","-c","features.shell_tool=true","-c","web_search=\"disabled\"").directory(workspace);
         Map<String,String> env=builder.environment();env.clear();
         env.put("HOME",root.getAbsolutePath());env.put("CODEX_HOME",home.getAbsolutePath());
+        env.put("SHELL","/system/bin/sh");
         env.put("TMPDIR",context.getCacheDir().getAbsolutePath());env.put("PATH","/system/bin:/system/xbin");
         env.put("CODEX_SELF_EXE",binary);env.put("LD_LIBRARY_PATH",nativeDir);env.put("LANG","C.UTF-8");
         env.put("ANDROID_ROOT","/system");env.put("ANDROID_DATA","/data");

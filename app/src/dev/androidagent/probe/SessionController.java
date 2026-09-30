@@ -27,11 +27,11 @@ public final class SessionController {
     public SessionController(Transport transport,String cwd,Changed changed) {this.transport=transport;this.cwd=cwd;this.changed=changed;}
     public synchronized Session session(String id) {return sessions.computeIfAbsent(id,Session::new);}
     private JSONObject parameters(String path) throws Exception {
-        return new JSONObject().put("cwd",path).put("sandbox","read-only").put("approvalPolicy","untrusted")
+        return new JSONObject().put("cwd",path).put("sandbox","workspace-write").put("approvalPolicy","on-request")
             .put("developerInstructions","You are an assistant running on the user's Android phone. Reply naturally in the user's language. "
                 +"Use android_battery_status for fresh battery state, never invent phone observations. Use available workspace tools for local files and downloads. Paths are relative to the current workspace. Unsupported binary formats require a suitable parser; do not invent their contents. "
                 +"When the user asks to delegate, use available subagent tools and summarize their results in the main conversation. "
-                +"Do not expose internal tool receipts. Do not execute shell commands. Modify files only via available workspace tools. Files saved in this workspace can be opened, shared or exported by the user from the app. Never claim a download or write succeeded without its tool result.");
+                +"Do not expose internal tool receipts. Use the native Codex shell and file tools for file work. On Android use /system/bin/sh with login=false, not /bin/bash. Standard Android commands include cp, mv, mkdir and ls; do not assume Python, Node or desktop packages exist. Work in the current cwd and preserve other workspaces and authentication files. Do not launch activities or change the visible phone screen unless the user requested it. Generated image files can be copied from their actual saved path into cwd; preserve the source. Files saved in this workspace can be opened, shared or exported by the user from the app. Never claim a download or write succeeded without its tool result.");
     }
     public String create() throws Exception {
         return create(cwd);
@@ -61,8 +61,8 @@ public final class SessionController {
     }
     private void put(Session s,JSONObject item) throws Exception {
         String type=item.optString("type");
-        if(type.equals("userMessage")||type.equals("agentMessage")||type.equals("dynamicToolCall")||type.equals("mcpToolCall"))
-            s.items.put(item.getString("id"),new JSONObject(item.toString()));
+        if(type.equals("userMessage")||type.equals("agentMessage")||type.equals("dynamicToolCall")||type.equals("mcpToolCall")||type.equals("commandExecution")||type.equals("fileChange")||type.equals("imageGeneration"))
+            {JSONObject copy=new JSONObject(item.toString());if(type.equals("imageGeneration"))copy.remove("result");s.items.put(item.getString("id"),copy);}
     }
     public void send(String id,String text) throws Exception {send(id,text,new JSONObject());}
     public void send(String id,String text,JSONObject selection) throws Exception {
@@ -120,6 +120,8 @@ public final class SessionController {
                 if(s.status.equals("failed"))s.error="응답이 완료되지 않았습니다. 다시 시도할 수 있습니다.";
             } else if(method.equals("item/started")||method.equals("item/completed")) {
                 put(s,params.getJSONObject("item"));
+            } else if(method.equals("item/commandExecution/outputDelta")){
+                JSONObject item=s.items.get(params.getString("itemId"));if(item!=null){String output=item.optString("aggregatedOutput")+params.getString("delta");item.put("aggregatedOutput",output.substring(Math.max(0,output.length()-16000)));}
             } else if(method.equals("item/agentMessage/delta")) {
                 String key=params.getString("itemId");JSONObject item=s.items.get(key);
                 if(item==null){item=new JSONObject().put("id",key).put("type","agentMessage").put("text","");s.items.put(key,item);}
@@ -128,6 +130,11 @@ public final class SessionController {
             }
         }
         changed.changed();
+    }
+    public synchronized boolean currentTurn(String id,String turn){Session s=sessions.get(id);return s!=null&&(s.starting||s.running)&&!s.status.equals("stopping")&&s.turn.equals(turn);}
+    public synchronized void imageFile(String id,String itemId,JSONObject file,String error)throws Exception{
+        JSONObject item=session(id).items.get(itemId);if(item==null||!item.optString("type").equals("imageGeneration"))return;
+        if(file!=null)item.put("workspaceFile",file);else item.put("fileError",error);changed.changed();
     }
     public synchronized void validateTool(JSONObject p)throws Exception{
         Session s=sessions.get(p.optString("threadId"));if(s==null||(!s.starting&&!s.running)||s.status.equals("stopping"))throw new IOException("INACTIVE_TOOL_SESSION");

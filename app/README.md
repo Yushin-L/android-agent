@@ -15,7 +15,7 @@ python3 app/prepare_android_payload.py app/downloads/runtime.tgz
 docker run --rm --network none --user "$(id -u):$(id -g)" -v "$PWD/app:/work" android-agent-builder
 ```
 
-출력: `app/artifacts/android-agent-0.8.0-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
+출력: `app/artifacts/android-agent-0.8.1-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
 런타임 아카이브의 SHA-512를 검사한 뒤 APK용 helper 이름만 동일 길이로 교체한다.
 출처·원본/수정 SHA-256·패치 위치는 `assets/runtime-provenance.json`에 기록된다.
 Codex의 Apache-2.0 고지는 `assets/CODEX-LICENSE`, `CODEX-NOTICE`에 포함된다.
@@ -53,3 +53,15 @@ Pretendard 1.3.9 글꼴 원본과 SIL OFL은 assets에 포함된다. 폰트 출�
 결과 파일 카드 또는 쓰레드 파일 메뉴에서 미리보기·열기·공유·다른 이름으로 저장·Downloads 저장·갤러리 저장을 제공한다. 외부 열기는 읽기 전용 한 파일 URI 권한을 부여한다. 저장은 사본을 만들고 SHA-256 재조회로 검증한 뒤 완료 표시한다. 실패/취소 시 새 출력 정리를 시도한다.
 
 서버 파일/세션 테스트와 Linux CLI 0.158.0 대조는 Android 런타임 0.156.1의 이미지 이해·Picker·Provider·MediaStore 검증을 대체하지 않는다. 해당 실기기 확인은 이슈 #29–#31에 남겨 둔다.
+
+## 0.8.1: Codex 기본 파일 실행 복원
+
+0.8.0의 셸/patch 비활성 설명은 이 버전에서 대체된다. `features.shell_tool=true`, `workspace-write`, `on-request`로 새 대화와 재개 대화를 구성한다. Android에서는 `/system/bin/sh`와 `login=false`를 사용하도록 안내한다. Bash/Python/Node를 APK에 추가하지 않았으며 없는 실행 환경을 가정하지 않는다. Codex가 실행/파일 변경 승인을 요청하면 명령·위치·변경 내용을 보여주고 이번 작업의 허용/거절을 전달한다. 요청된 제한을 자동으로 해제하거나 모든 승인을 자동 수락하지 않는다.
+
+Android 앱 UID의 접근 범위에서 실행한다. 참조 런타임의 플랫폼 sandbox 선택에는 Android용 별도 프로세스 격리가 없으므로 `workspace-write` 이름을 쓰레드 간 OS 보안 경계라고 설명하지 않는다. 다른 앱의 비공개 파일 접근 권한을 얻는 기능도 아니다.
+
+앱 서버 연결 시 `command/exec`로 임시 폴더에 생성→복사→이동→읽기를 수행하고 정리한다. 설정/진단의 `shellProbe=PASS_CREATE_COPY_MOVE`는 폰의 이 작은 점검이 통과했다는 의미이며 모든 셸 도구/샌드박스/백그라운드 동작 검증을 뜻하지 않는다. 실패 시 sandbox 정책을 풀어 재시도하지 않는다.
+
+`imageGeneration.savedPath`를 보존하고 생성 완료 시 해당 Codex 세션의 `CODEX_HOME/generated_images/<session>/`에서 쓰레드 폴더로 사본을 만든다. 원본을 보존하고 재개 시 같은 파일을 중복 생성하지 않는다. 경로 부재·실패·다른 세션 경로·심볼릭 링크·충돌은 오류로 표시한다. 명령 실행·파일 변경·생성 이미지 결과는 채팅에 표시되며 파일 메뉴와 연결된다. 이미 저장된 과거 생성 이미지도 대화 재개 시 경로가 유효하면 가져온다.
+
+서버 검증에는 모델/계정 호출 없이 실제 Linux App Server `command/exec`의 생성·복사·이동 및 파일 바이트 검증을 포함한다. 이 테스트만 Docker `--network none`을 외부 sandbox로 지정하며 앱 정책은 `workspace-write`를 유지한다. Android 실기기 실행은 자동 점검 및 후속 사용자 사용 결과로 확인해야 한다.

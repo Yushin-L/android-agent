@@ -10,7 +10,7 @@ Android 휴대폰 자체를 에이전트의 작업 환경으로 만드는 프로
 |---|---|
 | [M0 · 제품 방향과 참조 조사](https://github.com/Yushin-L/android-agent/milestone/1) | 완료된 기준선 |
 | [M1 · Android Codex 실행 경로 검증](https://github.com/Yushin-L/android-agent/milestone/2) | 완료된 기준선 |
-| [M2 · 쓰레드·세션 관리와 대화 UI](https://github.com/Yushin-L/android-agent/milestone/3) | 다음 구현 |
+| [M2 · 쓰레드·세션 관리와 대화 UI](https://github.com/Yushin-L/android-agent/milestone/3) | 구현·검증 진행 중 |
 | [M3 · Android 행동 도구 확장](https://github.com/Yushin-L/android-agent/milestone/4) | 후속 작업 |
 | [M4 · 실행 수명과 중단 복구](https://github.com/Yushin-L/android-agent/milestone/5) | 후속 작업 |
 | [M5 · 홈 통합과 배포 범위](https://github.com/Yushin-L/android-agent/milestone/6) | 후속 작업 |
@@ -23,7 +23,7 @@ Android 휴대폰 자체를 에이전트의 작업 환경으로 만드는 프로
 - 서브에이전트는 사용자의 대화 명령으로 활용하며, 기본 UI에 별도의 관리 화면이나 하위 작업 트리를 두지 않는다.
 - 디자인은 Linear의 차분한 구성, Material 3의 Android 상호작용, 따뜻한 회색·녹색, Pretendard를 기준으로 한다.
 
-자세한 색상·글꼴·화면 구조는 [설계 합의 #9](https://github.com/Yushin-L/android-agent/issues/9)를 따른다. 다음 구현은 [제품 앱 소스·빌드 구조 #10](https://github.com/Yushin-L/android-agent/issues/10)부터 시작한다.
+자세한 색상·글꼴·화면 구조는 [설계 합의 #9](https://github.com/Yushin-L/android-agent/issues/9)를 따른다. 제품 소스와 빌드 방법은 [app/README.md](app/README.md), 진행 증거는 [제품 앱 소스·빌드 구조 #10](https://github.com/Yushin-L/android-agent/issues/10)을 참고한다.
 
 ## 검증된 범위
 
@@ -33,7 +33,7 @@ Android 휴대폰 자체를 에이전트의 작업 환경으로 만드는 프로
 
 ## 저장소 범위
 
-현재 공개 저장소는 프로젝트 안내와 작업 규칙을 담은 초기 구성이다. 진단 앱 소스는 로컬 experiments에 있으므로 이 저장소만으로 아직 APK를 빌드할 수 없다. 제품 소스는 별도 구현 이슈에서 추가한다.
+제품 앱 소스는 `app/`에 있다. 고정 버전 런타임을 내려받아 무결성을 확인한 뒤 ARM64 Linux의 Docker 환경에서 APK를 빌드한다. 기존 진단 소스는 로컬 experiments에 보존한다.
 
 다음 디렉토리는 로컬에 유지하고 Git에 올리지 않는다.
 

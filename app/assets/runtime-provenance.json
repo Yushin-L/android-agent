@@ -1,0 +1,28 @@
+{
+  "package": "@mmmbuto/codex-cli-termux",
+  "version": "0.156.1-termux.1",
+  "source": "https://github.com/DioNanos/codex-termux",
+  "tarball": "https://registry.npmjs.org/@mmmbuto/codex-cli-termux/-/codex-cli-termux-0.156.1-termux.1.tgz",
+  "integrity": "sha512-LU0f2T4XqbA9XAZ2jR9aDAtdQ37iJguSrTrcBsEfFe761vFxVJdumkSoJzIYlpBZ/v6oO3IaHvdau3wgkEXDGw==",
+  "unmodifiedBinaries": false,
+  "originalSha256": {
+    "payload/libcodex.so": "6cbfa7f1660095e9cf2df7de242014579a0fb0d42545652fb0e22d1b6c8571a5",
+    "payload/libcodex-codehost.so": "8afb196579c3fd8ecac558dbebfcba5467f91389b3754e485728ce6904e6ceaf",
+    "payload/libc++_shared.so": "430f7cde7c1a88042bb9e39ae1c1f4b9f5819f3bd95acd1453d2e02c63ba1870",
+    "assets/CODEX-LICENSE": "d17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc",
+    "assets/CODEX-NOTICE": "8228749dd4dd6026baed0442f80e911308430478449285c865b188d97e6a013c"
+  },
+  "patch": {
+    "purpose": "APK-installed helper basename",
+    "offset": 10568364,
+    "from": "codex-code-mode-host",
+    "to": "libcodex-codehost.so"
+  },
+  "files": {
+    "payload/libcodex.so": "cf1b406252928b0d68cb0f8f81adde6a02bf357a7fffb762d10cb503a235be06",
+    "payload/libcodex-codehost.so": "8afb196579c3fd8ecac558dbebfcba5467f91389b3754e485728ce6904e6ceaf",
+    "payload/libc++_shared.so": "430f7cde7c1a88042bb9e39ae1c1f4b9f5819f3bd95acd1453d2e02c63ba1870",
+    "assets/CODEX-LICENSE": "d17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc",
+    "assets/CODEX-NOTICE": "8228749dd4dd6026baed0442f80e911308430478449285c865b188d97e6a013c"
+  }
+}

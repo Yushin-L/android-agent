@@ -1,0 +1,152 @@
+package dev.androidagent.probe;
+
+import android.app.*;
+import android.content.*;
+import android.content.res.Configuration;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.os.*;
+import android.text.*;
+import android.view.*;
+import android.widget.*;
+import org.json.*;
+
+/** GUI workspaces contain Codex sessions; navigation does not control execution. */
+public final class AgentActivity extends Activity {
+    private AgentService service;
+    private String workspace="",session="",screen="home",shownItems="",shownQuestion="";
+    private LinearLayout root,body,messages;
+    private ScrollView scroll;
+    private EditText input;
+    private TextView status,accountView;
+    private Button send,stop;
+    private int bg,surface,ink,muted,accent,onAccent;
+    private boolean bound,restoring;
+    private final Handler ui=new Handler(Looper.getMainLooper());
+    private final Runnable persistDraft=this::saveUi;
+    private Typeface regular=Typeface.DEFAULT,medium=Typeface.DEFAULT,semibold=Typeface.DEFAULT;
+    private final Runnable refresh=this::refresh;
+    private final ServiceConnection binding=new ServiceConnection(){
+        public void onServiceConnected(ComponentName name,IBinder binder){
+            service=((AgentService.LocalBinder)binder).service();service.observe(refresh);render();
+            service.submit(service::refreshAccount,e->{if(e!=null)toast("계정 연결을 확인하지 못했습니다");});
+            if(!session.isEmpty())loadSession();
+        }
+        public void onServiceDisconnected(ComponentName name){service=null;render();}
+    };
+    @Override public void onCreate(Bundle saved){
+        super.onCreate(saved);
+        if(saved!=null){workspace=saved.getString("workspace","");session=saved.getString("session","");screen=saved.getString("screen","home");}
+        boolean dark=(getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES;
+        bg=dark?0xff191a18:0xfffaf9f6;surface=dark?0xff252622:0xfff0efeb;ink=dark?0xffecede6:0xff252620;
+        muted=dark?0xffadb0a4:0xff686a61;accent=dark?0xffa5cead:0xff38654a;onAccent=dark?0xff191a18:0xfffaf9f6;
+        try{regular=Typeface.createFromAsset(getAssets(),"fonts/Pretendard-Regular.otf");medium=Typeface.createFromAsset(getAssets(),"fonts/Pretendard-Medium.otf");semibold=Typeface.createFromAsset(getAssets(),"fonts/Pretendard-SemiBold.otf");}catch(Exception ignored){}
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        render();Intent intent=new Intent(this,AgentService.class);startForegroundService(intent);bound=bindService(intent,binding,BIND_AUTO_CREATE);
+    }
+    private int dp(float n){return Math.round(n*getResources().getDisplayMetrics().density);}
+    private LinearLayout column(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);return l;}
+    private TextView text(String value,int size){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(ink);t.setTypeface(size>=22?semibold:regular);t.setPadding(0,dp(6),0,dp(6));return t;}
+    private Button button(LinearLayout parent,String title,Runnable action){
+        Button b=new Button(this);b.setText(title);b.setTextSize(16);b.setTypeface(medium);b.setTextColor(accent);b.setAllCaps(false);b.setMinHeight(dp(48));
+        b.setOnClickListener(v->action.run());parent.addView(b,new LinearLayout.LayoutParams(-1,-2));return b;
+    }
+    private void render(){
+        input=null;messages=null;status=null;accountView=null;scroll=null;shownItems="";shownQuestion="";
+        root=column();root.setBackgroundColor(bg);
+        root.setOnApplyWindowInsetsListener((view,insets)->{
+            if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.ime());root.setPadding(bars.left,bars.top,bars.right,bars.bottom);}
+            else root.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;
+        });
+        setContentView(root);body=column();int gutter=getResources().getConfiguration().screenWidthDp>=600?48:16;body.setPadding(dp(gutter),dp(8),dp(gutter),dp(8));root.addView(body,new LinearLayout.LayoutParams(-1,-1));
+        if(service==null){body.addView(text("연결 준비 중…",17));return;}
+        if(service.store==null){body.addView(text(service.error,17));return;}
+        try {if(screen.equals("settings"))settings();else if(screen.equals("chat")&&!workspace.isEmpty())chat();else home();}
+        catch(Exception e){body.addView(text("화면을 불러오지 못했습니다. 목록으로 돌아가 다시 열어 주세요.",17));button(body,"쓰레드 목록",()->{screen="home";render();});}
+    }
+    private void home()throws Exception{
+        body.addView(text("쓰레드",22));TextView hint=text("하고 싶은 일마다 대화를 모아두세요.",14);hint.setTextColor(muted);body.addView(hint);
+        button(body,"새로운 쓰레드 생성",()->{
+            EditText name=new EditText(this);name.setHint("쓰레드 이름");name.setSingleLine(true);name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(120)});
+            AlertDialog dialog=new AlertDialog.Builder(this).setTitle("새로운 쓰레드").setView(name).setNegativeButton("취소",null).setPositiveButton("만들기",null).create();
+            dialog.setOnShowListener(v->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(b->{String value=name.getText().toString().trim();if(value.isEmpty()){name.setError("이름을 입력해 주세요");return;}
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+                service.submit(()->workspace=service.createWorkspace(value),e->{if(e!=null){name.setError("생성 실패 · 연결과 로그인을 확인해 주세요");dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);}else{dialog.dismiss();openWorkspace(workspace);}});
+            }));dialog.show();
+        });
+        ScrollView list=new ScrollView(this);LinearLayout rows=column();list.addView(rows);body.addView(list,new LinearLayout.LayoutParams(-1,0,1));
+        JSONArray all=service.store.list();if(all.length()==0)rows.addView(text("아직 쓰레드가 없습니다",17));
+        for(int i=0;i<all.length();i++){JSONObject w=all.getJSONObject(i);String id=w.getString("id");button(rows,w.getString("name"),()->openWorkspace(id));}
+        button(body,"설정",()->{screen="settings";render();});
+    }
+    private void openWorkspace(String id){
+        saveUi();try{workspace=id;session=service.store.get(id).getString("activeSession");screen="chat";render();
+            if(session.isEmpty())newSession();else loadSession();
+        }catch(Exception e){toast("쓰레드를 열지 못했습니다");}
+    }
+    private void loadSession(){final String target=session;service.submit(()->service.sessions.load(target),e->{if(e!=null)toast("대화 기록을 불러오지 못했습니다");refresh();});}
+    private void newSession(){
+        saveUi();final String owner=workspace;
+        service.submit(()->service.newSession(owner),e->{if(e!=null){toast("새 대화를 만들지 못했습니다");return;}if(owner.equals(workspace))openWorkspace(owner);});
+    }
+    private void resume(){
+        saveUi();try{JSONArray list=service.store.get(workspace).getJSONArray("sessions");String[] labels=new String[list.length()];
+            for(int i=0;i<labels.length;i++)labels[i]="대화 "+(i+1)+(list.getJSONObject(i).getString("id").equals(session)?" · 현재":"");
+            new AlertDialog.Builder(this).setTitle("이전 대화 이어가기").setItems(labels,(d,n)->{try{service.store.select(workspace,list.getJSONObject(n).getString("id"));openWorkspace(workspace);}catch(Exception e){toast("대화를 선택하지 못했습니다");}}).setNegativeButton("닫기",null).show();
+        }catch(Exception e){toast("대화 목록을 불러오지 못했습니다");}
+    }
+    private void chat()throws Exception{
+        button(body,"‹ 쓰레드 목록",()->{saveUi();screen="home";render();});body.addView(text(service.store.get(workspace).getString("name"),22));
+        LinearLayout actions=new LinearLayout(this);body.addView(actions);Button fresh=button(actions,"/new",this::newSession),resume=button(actions,"/resume",this::resume);
+        fresh.setLayoutParams(new LinearLayout.LayoutParams(0,-2,1));resume.setLayoutParams(new LinearLayout.LayoutParams(0,-2,1));
+        status=text("대화를 불러오는 중",14);status.setTextColor(muted);status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);body.addView(status);
+        scroll=new ScrollView(this);messages=column();scroll.addView(messages);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        TextView label=text("메시지",14);body.addView(label);input=new EditText(this);input.setId(View.generateViewId());label.setLabelFor(input.getId());input.setTextSize(17);input.setTypeface(regular);input.setTextColor(ink);input.setHintTextColor(muted);input.setHint("메시지를 입력하세요");input.setMinLines(1);input.setMaxLines(5);input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(8000)});body.addView(input);
+        restoring=true;JSONArray entries=service.store.get(workspace).getJSONArray("sessions");int position=0;
+        for(int i=0;i<entries.length();i++)if(entries.getJSONObject(i).getString("id").equals(session)){input.setText(entries.getJSONObject(i).optString("draft"));position=entries.getJSONObject(i).optInt("scrollY");}
+        restoring=false;final int y=position;ScrollView current=scroll;current.post(()->current.scrollTo(0,y));
+        input.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){if(!restoring){ui.removeCallbacks(persistDraft);ui.postDelayed(persistDraft,400);}}public void afterTextChanged(Editable e){}});
+        LinearLayout controls=new LinearLayout(this);body.addView(controls);send=button(controls,"보내기",this::send);stop=button(controls,"중단",()->{final String target=session;service.submit(()->service.sessions.stop(target),e->{if(e!=null)toast("중단 요청에 실패했습니다");});});
+        send.setLayoutParams(new LinearLayout.LayoutParams(0,-2,1));stop.setLayoutParams(new LinearLayout.LayoutParams(0,-2,1));send.setTextColor(onAccent);send.setBackgroundTintList(android.content.res.ColorStateList.valueOf(accent));refresh();
+    }
+    private void send(){String value=input.getText().toString();if(value.trim().equals("/new")){input.setText("");newSession();return;}if(value.trim().equals("/resume")){input.setText("");resume();return;}if(value.trim().isEmpty())return;
+        final String target=session,owner=workspace;send.setEnabled(false);service.submit(()->{service.sessions.send(target,value);JSONObject w=service.store.get(owner);JSONArray entries=w.getJSONArray("sessions");for(int i=0;i<entries.length();i++){JSONObject entry=entries.getJSONObject(i);if(entry.getString("id").equals(target)&&entry.optString("draft").equals(value))service.store.saveUi(owner,target,"",entry.optInt("scrollY"));}},e->{if(e!=null){toast("전송 실패 · 연결 상태와 실행 중인 대화를 확인해 주세요");}else if(target.equals(session)&&input!=null&&input.getText().toString().equals(value)){input.setText("");}refresh();});
+    }
+    private void refresh(){
+        if(service==null)return;if(accountView!=null)accountView.setText(service.account);if(!screen.equals("chat")||messages==null)return;
+        try{
+            boolean busy=service.sessions.busy(session);send.setEnabled(!busy&&!session.isEmpty());stop.setEnabled(busy);
+            String phase=service.sessions.status(session);status.setText(busy?(phase.equals("stopping")?"중단 중…":"응답 작성 중…"):(phase.equals("failed")||phase.equals("error")||phase.equals("disconnected")?"연결 또는 응답 오류 · 다시 시도할 수 있습니다":"메시지를 입력하세요"));
+            JSONArray items=service.sessions.items(session);String stamp=items.toString();
+            if(!stamp.equals(shownItems)){boolean bottom=scroll.getChildAt(0).getHeight()-scroll.getHeight()-scroll.getScrollY()<dp(80);messages.removeAllViews();
+                for(int i=0;i<items.length();i++){JSONObject item=items.getJSONObject(i);String type=item.optString("type"),value="";
+                    if(type.equals("agentMessage"))value=item.optString("text");
+                    else if(type.equals("userMessage")){JSONArray content=item.optJSONArray("content");if(content!=null)for(int j=0;j<content.length();j++)value+=content.getJSONObject(j).optString("text")+"\n";}
+                    else value=(item.optString("tool","도구"))+" · "+(item.optBoolean("success")?"완료":item.optString("status"));
+                    TextView message=text(value.trim(),type.endsWith("Message")?17:14);message.setTextIsSelectable(true);message.setLineSpacing(0,1f);message.setLineHeight(Math.round(27*getResources().getDisplayMetrics().scaledDensity));message.setPadding(dp(12),dp(12),dp(12),dp(12));
+                    if(type.equals("userMessage")){GradientDrawable shape=new GradientDrawable();shape.setColor(surface);shape.setCornerRadius(dp(12));message.setBackground(shape);}messages.addView(message);
+                }shownItems=stamp;if(bottom)scroll.post(()->{if(scroll!=null)scroll.fullScroll(View.FOCUS_DOWN);});
+            }
+            AgentService.Question q=service.question(session);if(q!=null&&!q.key.equals(shownQuestion)){shownQuestion=q.key;showQuestion(q);}
+        }catch(Exception e){status.setText("대화 표시 오류 · 다시 열어 주세요");}
+    }
+    private void showQuestion(AgentService.Question q)throws Exception{
+        LinearLayout fields=column();JSONArray questions=q.params.getJSONArray("questions");EditText[] answers=new EditText[questions.length()];
+        for(int i=0;i<answers.length;i++){JSONObject item=questions.getJSONObject(i);fields.addView(text(item.optString("question"),17));JSONArray options=item.optJSONArray("options");if(options!=null){String choices="";for(int j=0;j<options.length();j++)choices+=options.getJSONObject(j).optString("label")+"  ";fields.addView(text(choices,14));}answers[i]=new EditText(this);answers[i].setHint("답변");fields.addView(answers[i]);}
+        ScrollView form=new ScrollView(this);form.addView(fields);new AlertDialog.Builder(this).setTitle("입력이 필요합니다").setView(form).setPositiveButton("전달",(d,n)->{try{JSONObject out=new JSONObject();for(int i=0;i<answers.length;i++)out.put(questions.getJSONObject(i).getString("id"),new JSONObject().put("answers",new JSONArray().put(answers[i].getText().toString())));service.answer(q,new JSONObject().put("answers",out));}catch(Exception e){toast("답변 전달 실패");}}).setNegativeButton("취소",(d,n)->{try{service.answer(q,new JSONObject().put("answers",new JSONObject()));}catch(Exception ignored){}}).setCancelable(false).show();
+    }
+    private void settings(){
+        button(body,"‹ 쓰레드 목록",()->{screen="home";render();});body.addView(text("설정",22));accountView=text(service.account,17);body.addView(accountView);
+        button(body,"ChatGPT 로그인",()->login(false));button(body,"기기 코드로 로그인",()->login(true));
+        button(body,"계정 새로고침",()->service.submit(service::refreshAccount,e->{if(e!=null)toast("계정 확인 실패");render();}));
+        button(body,"로그아웃",()->service.submit(service::logout,e->{if(e!=null)toast("진행 중인 대화를 마친 뒤 다시 시도해 주세요");render();}));
+        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.7.0\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
+    }
+    private void login(boolean device){service.submit(()->service.login(device),e->{if(e!=null){toast("로그인을 시작하지 못했습니다");return;}if(!service.loginCode.isEmpty())new AlertDialog.Builder(this).setTitle("로그인 코드").setMessage(service.loginCode).setPositiveButton("복사",(d,n)->((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("로그인 코드",service.loginCode))).show();try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(service.loginUrl)));}catch(Exception ex){toast("브라우저를 열지 못했습니다");}});}
+    private void saveUi(){ui.removeCallbacks(persistDraft);if(service==null||input==null||session.isEmpty())return;try{service.store.saveUi(workspace,session,input.getText().toString(),scroll==null?0:scroll.getScrollY());}catch(Exception e){toast("입력 초안을 저장하지 못했습니다");}}
+    private void toast(String value){Toast.makeText(this,value,Toast.LENGTH_SHORT).show();}
+    @Override protected void onSaveInstanceState(Bundle state){saveUi();state.putString("workspace",workspace);state.putString("session",session);state.putString("screen",screen);super.onSaveInstanceState(state);}
+    @Override public void onBackPressed(){if(!screen.equals("home")){saveUi();screen="home";render();}else super.onBackPressed();}
+    @Override protected void onPause(){saveUi();super.onPause();}
+    @Override protected void onDestroy(){ui.removeCallbacks(persistDraft);if(service!=null)service.unobserve(refresh);if(bound)unbindService(binding);super.onDestroy();}
+}

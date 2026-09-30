@@ -30,3 +30,7 @@ credentials.json
 __pycache__/
 *.py[cod]
 .DS_Store
+/app/payload/
+/app/artifacts/
+/app/results/
+/app/downloads/

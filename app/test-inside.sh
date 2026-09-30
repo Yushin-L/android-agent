@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export LANG=C.UTF-8
 cd /work
 mkdir -p build/tests
 python3 prepare_markdown.py --check

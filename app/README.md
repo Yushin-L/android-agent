@@ -16,7 +16,7 @@ python3 app/prepare_markdown.py
 docker run --rm --network none --user "$(id -u):$(id -g)" -v "$PWD/app:/work" android-agent-builder
 ```
 
-출력: `app/artifacts/android-agent-0.10.1-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
+출력: `app/artifacts/android-agent-0.10.2-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
 런타임 아카이브의 SHA-512를 검사한 뒤 APK용 helper 이름만 동일 길이로 교체한다.
 출처·원본/수정 SHA-256·패치 위치는 `assets/runtime-provenance.json`에 기록된다.
 Codex의 Apache-2.0 고지는 `assets/CODEX-LICENSE`, `CODEX-NOTICE`에 포함된다.
@@ -117,3 +117,7 @@ APK 빌드·리소스 링크·서명과 정적 검토 범위다. 실기기 키�
 ## 0.10.1: 도구 그룹·파일 선택
 
 연속 도구 2개 이상을 바깥 접기 그룹으로 묶는다. 파일을 길게 눌러 체크박스로 여러 항목을 선택해 삭제하거나, 왼쪽으로 밀어 삭제 확인을 연다. 현재 폴더의 표시 항목만 선택하며 폴더 이동 시 해제한다. 전체 경로를 검사한 뒤 순서대로 삭제하고 부분 실패 시 완료 개수를 안내한다. 원자적 일괄 삭제는 아니다. 설계·검증: [#40](https://github.com/Yushin-L/android-agent/issues/40). Android 제스처 실기기 확인은 별도 필요하다.
+
+## 0.10.2: 채팅 파일 링크
+
+현재 쓰레드 파일의 절대경로·file:/// URI·상대경로 링크를 채팅에서 직접 미리보기로 연다. 다른 쓰레드나 작업 폴더 밖 파일은 거절한다. 한글·공백 URL 인코딩을 처리하며 문서 fragment 위치 이동은 지원하지 않는다. [#39](https://github.com/Yushin-L/android-agent/issues/39).

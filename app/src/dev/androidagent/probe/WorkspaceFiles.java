@@ -55,6 +55,25 @@ public final class WorkspaceFiles {
             }finally{c.disconnect();}
         }throw new IOException("DOWNLOAD_REDIRECT_LIMIT");
     }
+    /** Resolve a clicked chat/document link into this workspace only. */
+    public synchronized String linkedFile(String id,String document,String target)throws Exception{
+        java.net.URI uri=new java.net.URI(target.replace(" ","%20"));
+        String scheme=uri.getScheme();
+        if(uri.getRawAuthority()!=null||uri.isOpaque()||(scheme!=null&&!scheme.equalsIgnoreCase("file")))throw new IOException("EXTERNAL_LINK");
+        String path=uri.getPath();if(path==null)throw new IOException("FILE_LINK");
+        Path base=root(id),candidate;
+        if(path.startsWith("/")){
+            candidate=java.nio.file.Paths.get(path).normalize();
+            if(candidate.startsWith(base))path=base.relativize(candidate).toString();
+            else{Path realBase=base.toRealPath(),real=candidate.toRealPath();if(!real.startsWith(realBase))throw new IOException("OUTSIDE_WORKSPACE");path=realBase.relativize(real).toString();}
+        }else{
+            if(scheme!=null)throw new IOException("FILE_LINK");
+            Path parent=document.isEmpty()?java.nio.file.Paths.get(""):java.nio.file.Paths.get(document).getParent();
+            path=path.isEmpty()?document:(parent==null?java.nio.file.Paths.get(path):parent.resolve(path)).toString();
+        }
+        candidate=resolve(id,path);if(!Files.isRegularFile(candidate,java.nio.file.LinkOption.NOFOLLOW_LINKS))throw new IOException("FILE_NOT_FOUND");
+        return base.relativize(candidate).toString();
+    }
     /** Validate the entire selection before any mutation, and collapse overlapping paths. */
     public synchronized java.util.List<String> deletionPaths(String id,java.util.Collection<String> paths)throws IOException{
         java.util.Set<String> unique=new java.util.LinkedHashSet<>();

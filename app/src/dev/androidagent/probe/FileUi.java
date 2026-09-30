@@ -93,8 +93,12 @@ final class FileUi {
         try{
             if(target.startsWith(PreviewPolicy.ORIGIN)){preview(workspace,PreviewPolicy.path(target),WorkspaceProvider.mime(PreviewPolicy.path(target)));return;}
             if(MarkdownDocument.webLink(target)){activity.startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(target)));return;}
-            if(!workspace.isEmpty()&&!documentPath.isEmpty()){
-                String relative=PreviewPolicy.linkedPath(documentPath,target);preview(workspace,relative,WorkspaceProvider.mime(relative));return;
+            if(!workspace.isEmpty()){
+                final String[] path={null};service.submit(()->{service.store.get(workspace);path[0]=service.files.linkedFile(workspace,documentPath,target);},error->{
+                    if(activity.isDestroyed())return;
+                    if(error!=null){toast("이 쓰레드 안의 파일만 열 수 있습니다. 파일 경로와 존재 여부를 확인해 주세요.");return;}
+                    preview(workspace,path[0],WorkspaceProvider.mime(path[0]));
+                });return;
             }
             toast("이 링크는 앱에서 열 수 없습니다");
         }catch(Exception e){toast("링크를 열 수 없습니다");}

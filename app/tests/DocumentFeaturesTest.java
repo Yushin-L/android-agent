@@ -21,7 +21,15 @@ public class DocumentFeaturesTest {
   reject(()->PreviewPolicy.path("https://workspace.invalid.evil/a"));reject(()->PreviewPolicy.path("https://workspace.invalid@evil/a"));reject(()->PreviewPolicy.path("https://workspace.invalid/%2e%2e/auth.json"));reject(()->PreviewPolicy.path("https://workspace.invalid/%2f..%2fauth.json"));reject(()->PreviewPolicy.path("file:///data/auth.json"));reject(()->PreviewPolicy.path("https://workspace.invalid:443/a"));reject(()->PreviewPolicy.linkedPath("docs/a.md","//evil/image"));
   Path root=Files.createTempDirectory("entry-delete-");WorkspaceFiles files=new WorkspaceFiles(root.resolve("workspaces"),root.resolve("cache"));WorkspaceStore store=new WorkspaceStore(root.resolve("state.json"));String a=store.create("a"),b=store.create("b");store.attach(a,"session");
   files.write(a,"dir/nested/file.md","keep?",false);files.write(a,"dir-other/keep.md","keep",false);files.write(b,"keep.md","other workspace",false);
+  check(files.linkedFile(a,"",files.resolve(a,"dir/nested/file.md").toString()).equals("dir/nested/file.md"));
+  check(files.linkedFile(a,"",files.resolve(a,"dir/nested/file.md").toUri().toString()).equals("dir/nested/file.md"));
+  check(files.linkedFile(a,"","dir/nested/file.md#heading").equals("dir/nested/file.md"));
+  check(files.linkedFile(a,"dir/index.md","nested/file.md").equals("dir/nested/file.md"));
+  check(files.linkedFile(a,"dir/nested/file.md","#heading").equals("dir/nested/file.md"));
+  files.write(a,"한 글.md","text",false);check(files.linkedFile(a,"",files.resolve(a,"한 글.md").toUri().toASCIIString()).equals("한 글.md"));
+  reject(()->files.linkedFile(a,"",files.resolve(b,"keep.md").toString()));reject(()->files.linkedFile(a,"","../state.json"));reject(()->files.linkedFile(a,"","file://evil/a.md"));reject(()->files.linkedFile(a,"","javascript:alert(1)"));reject(()->files.linkedFile(a,"","missing.md"));
   Path outside=root.resolve("outside");Files.createDirectory(outside);Files.write(outside.resolve("keep"),new byte[]{1});Files.createSymbolicLink(files.resolve(a,"dir/link"),outside);
+  reject(()->files.linkedFile(a,"","dir/link/keep"));
   reject(()->files.deleteEntry(a,""));reject(()->files.deleteEntry(a,"dir/.."));reject(()->files.deleteEntry(a,"../"+b));reject(()->files.deleteEntry(a,outside.toString()));reject(()->files.deleteEntry(a,"dir/link"));
   store.appendAttachment(a,"session",new JSONObject().put("path","dir/nested/file.md"));store.appendAttachment(a,"session",new JSONObject().put("path","dir-other/keep.md"));
   store.markDeletedPath(a,"dir");files.deleteEntry(a,"dir");store.removeAttachmentPath(a,"dir");

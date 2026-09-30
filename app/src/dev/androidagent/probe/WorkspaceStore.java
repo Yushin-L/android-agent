@@ -82,6 +82,22 @@ public final class WorkspaceStore {
         if(values.length()>10)throw new IOException("ATTACHMENT_LIMIT");mutate(()->s.put("attachments",new JSONArray(values.toString())));
     }
     public synchronized void appendAttachment(String workspace,String id,JSONObject item)throws Exception{JSONArray a=attachments(workspace,id);a.put(item);attachments(workspace,id,a);}
+    public synchronized void markDeletedPath(String workspace,String path)throws Exception{
+        JSONObject w=find(workspace);JSONArray old=w.optJSONArray("deletedFiles");JSONArray values=old==null?new JSONArray():new JSONArray(old.toString());
+        for(int i=0;i<values.length();i++)if(path.equals(values.getString(i)))return;
+        values.put(path);mutate(()->w.put("deletedFiles",values));
+    }
+    public synchronized boolean deletedPath(String workspace,String path)throws Exception{
+        JSONArray values=find(workspace).optJSONArray("deletedFiles");if(values==null)return false;
+        for(int i=0;i<values.length();i++){String p=values.getString(i);if(path.equals(p)||path.startsWith(p+"/"))return true;}return false;
+    }
+    public synchronized void removeAttachmentPath(String workspace,String path)throws Exception{
+        JSONObject w=get(workspace);JSONArray sessions=w.getJSONArray("sessions");
+        for(int i=0;i<sessions.length();i++){String id=sessions.getJSONObject(i).getString("id");JSONArray entries=attachments(workspace,id),keep=new JSONArray();
+            for(int j=0;j<entries.length();j++){JSONObject item=entries.getJSONObject(j);String p=item.optString("path");if(!p.equals(path)&&!p.startsWith(path+"/"))keep.put(item);}
+            if(keep.length()!=entries.length())attachments(workspace,id,keep);
+        }
+    }
     public synchronized void consumeAttachments(String workspace,String id,JSONArray sent)throws Exception{
         java.util.Set<String> paths=new java.util.HashSet<>();for(int i=0;i<sent.length();i++)paths.add(sent.getJSONObject(i).getString("path"));
         JSONArray current=attachments(workspace,id),remaining=new JSONArray();for(int i=0;i<current.length();i++)if(!paths.contains(current.getJSONObject(i).getString("path")))remaining.put(current.getJSONObject(i));attachments(workspace,id,remaining);

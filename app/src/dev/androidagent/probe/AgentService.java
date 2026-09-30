@@ -100,7 +100,7 @@ public final class AgentService extends Service implements AppServerConnection.L
         checkRunning();
         if(connection!=null&&!connection.isClosed())return connection;
         connection=new AppServerConnection(runtime.start(),this);
-        try {connection.call("initialize",new JSONObject().put("clientInfo",new JSONObject().put("name","android_agent").put("version","0.9.3"))
+        try {connection.call("initialize",new JSONObject().put("clientInfo",new JSONObject().put("name","android_agent").put("version","0.10.0"))
             .put("capabilities",new JSONObject().put("experimentalApi",true)),20000);
         connection.notify("initialized",new JSONObject());probeShell(connection);return connection;
         } catch(Exception e){connection.close();connection=null;throw e;}
@@ -119,6 +119,8 @@ public final class AgentService extends Service implements AppServerConnection.L
     private void retainImages(String id)throws Exception{
         String owner=store.owner(id);JSONArray items=sessions.items(id);
         for(int i=0;i<items.length();i++){JSONObject item=items.getJSONObject(i);if(!item.optString("type").equals("imageGeneration")||!item.optString("status").equals("completed")||item.has("workspaceFile"))continue;
+            String destination=generatedImages.destination(owner,id,item);
+            if(store.deletedPath(owner,destination)&&!java.nio.file.Files.exists(files.resolve(owner,destination))){sessions.imageFile(id,item.getString("id"),null,"사용자가 삭제한 파일입니다");continue;}
             beginFiles(owner);try{sessions.imageFile(id,item.getString("id"),generatedImages.retain(owner,id,item),"");}catch(Exception e){sessions.imageFile(id,item.getString("id"),null,"생성 이미지 저장 경로를 확인하지 못했습니다");}finally{endFiles(owner);}
         }
     }
@@ -183,6 +185,16 @@ public final class AgentService extends Service implements AppServerConnection.L
         String id=store.create(name);files.root(id);String session=sessions.create(files.root(id).toString());store.attach(id,session);return id;
     }
     public String newSession(String workspace) throws Exception {store.get(workspace);String id=sessions.create(files.root(workspace).toString());store.attach(workspace,id);return id;}
+    public synchronized void deleteFile(String owner,String path)throws Exception{
+        JSONArray entries=store.get(owner).getJSONArray("sessions");
+        for(int i=0;i<entries.length();i++)if(sessions.busy(entries.getJSONObject(i).getString("id")))throw new IOException("WORKSPACE_BUSY");
+        if(fileJobs.getOrDefault(owner,0)>0)throw new IOException("WORKSPACE_BUSY");
+        String relative=files.root(owner).relativize(files.resolve(owner,path)).toString();if(relative.isEmpty())throw new IOException("WORKSPACE_ROOT_DELETE_DENIED");
+        store.markDeletedPath(owner,relative);files.deleteEntry(owner,relative);store.removeAttachmentPath(owner,relative);
+        for(int i=0;i<entries.length();i++){String id=entries.getJSONObject(i).getString("id");JSONArray items=sessions.items(id);
+            for(int j=0;j<items.length();j++){JSONObject item=items.getJSONObject(j),file=item.optJSONObject("workspaceFile");if(file!=null&&(file.optString("path").equals(relative)||file.optString("path").startsWith(relative+"/")))sessions.imageFile(id,item.getString("id"),null,"사용자가 삭제한 파일입니다");}
+        }changed();
+    }
     public synchronized void deleteWorkspace(String id) throws Exception {
         JSONArray entries=store.get(id).getJSONArray("sessions");
         for(int i=0;i<entries.length();i++)if(sessions.busy(entries.getJSONObject(i).getString("id")))throw new IOException("WORKSPACE_BUSY");

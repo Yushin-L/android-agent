@@ -134,7 +134,7 @@ public final class SessionController {
     public synchronized boolean currentTurn(String id,String turn){Session s=sessions.get(id);return s!=null&&(s.starting||s.running)&&!s.status.equals("stopping")&&s.turn.equals(turn);}
     public synchronized void imageFile(String id,String itemId,JSONObject file,String error)throws Exception{
         JSONObject item=session(id).items.get(itemId);if(item==null||!item.optString("type").equals("imageGeneration"))return;
-        if(file!=null)item.put("workspaceFile",file);else item.put("fileError",error);changed.changed();
+        if(file!=null)item.put("workspaceFile",file);else {item.remove("workspaceFile");item.put("fileError",error);}changed.changed();
     }
     public synchronized void validateTool(JSONObject p)throws Exception{
         Session s=sessions.get(p.optString("threadId"));if(s==null||(!s.starting&&!s.running)||s.status.equals("stopping"))throw new IOException("INACTIVE_TOOL_SESSION");

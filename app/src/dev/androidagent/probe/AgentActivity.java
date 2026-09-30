@@ -31,7 +31,9 @@ public final class AgentActivity extends Activity {
     private final Handler ui=new Handler(Looper.getMainLooper());
     private final Runnable persistDraft=this::saveUi;
     private Typeface regular=Typeface.DEFAULT,medium=Typeface.DEFAULT,semibold=Typeface.DEFAULT;
-    private final Runnable refresh=this::refresh;
+    private final java.util.Map<String,MarkdownView> markdownViews=new java.util.HashMap<>();
+    private boolean refreshQueued;
+    private final Runnable refresh=()->{if(isDestroyed())return;if(!refreshQueued){refreshQueued=true;ui.postDelayed(()->{refreshQueued=false;refresh();},100);}};
     private final ServiceConnection binding=new ServiceConnection(){
         public void onServiceConnected(ComponentName name,IBinder binder){
             service=((AgentService.LocalBinder)binder).service();service.observe(refresh);fileUi.bind(service);
@@ -112,6 +114,7 @@ public final class AgentActivity extends Activity {
         @Override public int getOpacity(){return android.graphics.PixelFormat.TRANSLUCENT;}
     }
     private void render(){
+        for(MarkdownView view:markdownViews.values())view.release();markdownViews.clear();
         if(approvalDialog!=null){approvalDialog.dismiss();approvalDialog=null;}
         input=null;attachmentRows=null;shownAttachments="";suggestions=null;messages=null;status=null;accountView=null;modelView=null;scroll=null;shownItems="";shownQuestion="";
         root=column();root.setBackgroundColor(bg);root.setFocusableInTouchMode(true);root.requestFocus();
@@ -128,9 +131,12 @@ public final class AgentActivity extends Activity {
     private View dialogContent(View content){LinearLayout form=column();form.setPadding(dp(24),dp(8),dp(24),dp(8));form.addView(content,new LinearLayout.LayoutParams(-1,-2));return form;}
     private void latestMessages(boolean animate){
         final ScrollView current=scroll;if(current==null)return;
-        current.post(()->{if(current!=scroll||current.getChildCount()==0)return;int y=Math.max(0,current.getChildAt(0).getHeight()-current.getHeight()+current.getPaddingBottom());
+        Runnable move=()->{if(current!=scroll||current.getChildCount()==0||isDestroyed())return;int y=Math.max(0,current.getChildAt(0).getHeight()-current.getHeight()+current.getPaddingBottom());
             if(animate&&android.animation.ValueAnimator.areAnimatorsEnabled())current.smoothScrollTo(0,y);else current.scrollTo(0,y);
-        });
+        };
+        if(current.isLayoutRequested()||(current.getChildCount()>0&&current.getChildAt(0).isLayoutRequested())){
+            current.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener(){public void onGlobalLayout(){if(current.getViewTreeObserver().isAlive())current.getViewTreeObserver().removeOnGlobalLayoutListener(this);move.run();}});
+        }else current.post(move);
     }
     private void home()throws Exception{
         body.addView(text("쓰레드",22));TextView hint=text("하고 싶은 일마다 대화를 모아두세요.",14);hint.setTextColor(muted);body.addView(hint);
@@ -255,6 +261,7 @@ public final class AgentActivity extends Activity {
         input.clearFocus();root.setFocusableInTouchMode(true);root.requestFocus();
     }
     private void refresh(){
+        if(isDestroyed())return;
         if(service==null)return;if(accountView!=null)accountView.setText(service.account);if(!screen.equals("chat")||messages==null)return;
         try{
             if(modelView!=null)modelView.setText(modelLabel());refreshAttachments();
@@ -266,7 +273,11 @@ public final class AgentActivity extends Activity {
             if(!stamp.equals(shownItems)){boolean bottom=scroll.getChildAt(0).getHeight()-scroll.getHeight()-scroll.getScrollY()<dp(80);messages.removeAllViews();
                 for(int i=0;i<items.length();i++){JSONObject item=items.getJSONObject(i);String type=item.optString("type"),value="";
                     if(type.equals("commandExecution")){commandCard(item);continue;}
-                    if(type.equals("agentMessage"))value=item.optString("text");
+                    if(type.equals("agentMessage")){
+                        String id=item.getString("id");MarkdownView rendered=markdownViews.get(id);
+                        if(rendered==null){final String owner=workspace;rendered=new MarkdownView(this,url->fileUi.link(owner,"",url),()->scroll!=null&&scroll.getChildCount()>0&&scroll.getChildAt(0).getHeight()-scroll.getHeight()-scroll.getScrollY()<dp(80),()->latestMessages(false));markdownViews.put(id,rendered);}
+                        messages.addView(rendered,new LinearLayout.LayoutParams(-1,-2));rendered.setMarkdown(item.optString("text"));continue;
+                    }
                     else if(type.equals("userMessage")){JSONArray content=item.optJSONArray("content");if(content!=null)for(int j=0;j<content.length();j++)value+=content.getJSONObject(j).optString("text")+"\n";}
 
                     else if(type.equals("fileChange"))value="파일 변경 · "+item.optString("status");
@@ -349,7 +360,7 @@ public final class AgentActivity extends Activity {
         button(body,"ChatGPT 로그인",()->login(false));button(body,"기기 코드로 로그인",()->login(true));
         button(body,"계정 새로고침",()->service.submit(service::refreshAccount,e->{if(e!=null)toast("계정 확인 실패");render();}));
         button(body,"로그아웃",()->service.submit(service::logout,e->{if(e!=null)toast("진행 중인 대화를 마친 뒤 다시 시도해 주세요");render();}));
-        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.9.3\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\",\"shellProbe\":\""+service.shellProbe+"\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
+        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.10.0\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\",\"shellProbe\":\""+service.shellProbe+"\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
     }
     private void login(boolean device){service.submit(()->service.login(device),e->{if(e!=null){toast("로그인을 시작하지 못했습니다");return;}if(!service.loginCode.isEmpty())new AlertDialog.Builder(this).setTitle("로그인 코드").setMessage(service.loginCode).setPositiveButton("복사",(d,n)->((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("로그인 코드",service.loginCode))).show();try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(service.loginUrl)));}catch(Exception ex){toast("브라우저를 열지 못했습니다");}});}
     private void rememberLocation(){if(!workspace.isEmpty())getSharedPreferences("navigation",0).edit().putString("workspace",workspace).putString("session",session).apply();}
@@ -359,5 +370,5 @@ public final class AgentActivity extends Activity {
     @Override public void onBackPressed(){if(!screen.equals("home")){saveUi();screen="home";render();}else super.onBackPressed();}
     @Override protected void onResume(){super.onResume();if(service!=null&&screen.equals("settings"))render();}
     @Override protected void onPause(){saveUi();super.onPause();}
-    @Override protected void onDestroy(){fileUi.destroy();ui.removeCallbacks(persistDraft);if(service!=null)service.unobserve(refresh);if(bound)unbindService(binding);super.onDestroy();}
+    @Override protected void onDestroy(){for(MarkdownView view:markdownViews.values())view.release();fileUi.destroy();ui.removeCallbacks(persistDraft);if(service!=null)service.unobserve(refresh);if(bound)unbindService(binding);super.onDestroy();}
 }

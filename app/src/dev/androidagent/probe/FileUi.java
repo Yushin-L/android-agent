@@ -19,6 +19,7 @@ final class FileUi {
     private AgentService service;
     private final Runnable changed;
     private String owner="",session="",exportOwner="",exportPath="";
+    private DocumentPreview document;
     private FileBrowser browser;private Bundle browserState;private int browserGeneration;
     private int pendingRequest;private Intent pendingData;
     private static final int PHOTOS=70,DOCUMENTS=71,EXPORT=72;
@@ -52,16 +53,46 @@ final class FileUi {
         try{browser=new FileBrowser(activity,service,workspace,directory,saved,(w,p)->preview(w,p,WorkspaceProvider.mime(p),()->request==browserGeneration&&browser!=null&&browser.showing()),this::actions);browser.show();}
         catch(Exception e){toast("쓰레드 파일을 열지 못했습니다");}
     }
-    void destroy(){browserGeneration++;if(browser!=null)browser.close();}
+    void destroy(){if(document!=null)document.close();browserGeneration++;if(browser!=null)browser.close();}
     static String size(long bytes){return bytes<1024?bytes+" B":bytes>=1024*1024?String.format(Locale.ROOT,"%.1f MB",bytes/1048576.0):String.format(Locale.ROOT,"%.1f KB",bytes/1024.0);}
     void actions(String workspace,String path){
+        boolean inBrowser=browser!=null&&browser.showing();int request=browserGeneration;final boolean[] folder={false};
+        service.submit(()->{service.store.get(workspace);folder[0]=Files.isDirectory(service.files.resolve(workspace,path));},error->{
+            if(activity.isDestroyed()||(inBrowser&&(request!=browserGeneration||browser==null||!browser.showing())))return;
+            if(error!=null){toast("파일을 확인하지 못했습니다");return;}showActions(workspace,path,folder[0]);
+        });
+    }
+    private void showActions(String workspace,String path,boolean folder){
         String mime=WorkspaceProvider.mime(path);boolean media=mime.startsWith("image/")||mime.startsWith("video/");
-        List<String> labels=new ArrayList<>(Arrays.asList("열기 / 미리보기","공유","다른 이름으로 저장","다운로드에 저장"));if(media)labels.add("갤러리에 저장");
+        List<String> labels=new ArrayList<>();if(!folder){labels.addAll(Arrays.asList("열기 / 미리보기","공유","다른 이름으로 저장","다운로드에 저장"));if(media)labels.add("갤러리에 저장");}labels.add("삭제");
         new AlertDialog.Builder(activity).setTitle(new File(path).getName()).setItems(labels.toArray(new String[0]),(d,n)->{
+            if(n==labels.size()-1){confirmDelete(workspace,path,folder);return;}
             if(n==0)preview(workspace,path,mime);else if(n==1)open(workspace,path,mime,true);else if(n==2){
                 exportOwner=workspace;exportPath=path;Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(mime).putExtra(Intent.EXTRA_TITLE,new File(path).getName());try{activity.startActivityForResult(intent,EXPORT);}catch(ActivityNotFoundException e){toast("저장 위치 선택기를 열 수 없습니다");}
             }else export(workspace,path,null,n==4?(mime.startsWith("image/")?"image":"video"):"download");
         }).show();
+    }
+    private void confirmDelete(String workspace,String path,boolean folder){
+        AlertDialog confirm=new AlertDialog.Builder(activity).setTitle(folder?"폴더를 삭제할까요?":"파일을 삭제할까요?")
+            .setMessage(path+(folder?"\n\n폴더 안의 파일과 하위 폴더도 모두 삭제됩니다.":"")+"\n삭제한 항목은 복구할 수 없습니다. 폰에 따로 저장한 사본은 유지됩니다.")
+            .setNegativeButton("취소",null).setPositiveButton("삭제",null).create();confirm.show();
+        confirm.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{confirm.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+            service.submit(()->service.deleteFile(workspace,path),error->{if(activity.isDestroyed())return;confirm.dismiss();
+                if(error==null){toast("삭제했습니다");if(document!=null)document.close();}
+                else toast("WORKSPACE_BUSY".equals(error.getMessage())?"이 쓰레드의 실행 중인 작업을 마친 뒤 삭제해 주세요":"삭제를 완료하지 못했습니다. 남은 파일 목록을 확인해 주세요.");
+                if(browser!=null)browser.reload(workspace);changed.run();
+            });
+        });
+    }
+    void link(String workspace,String documentPath,String target){
+        try{
+            if(target.startsWith(PreviewPolicy.ORIGIN)){preview(workspace,PreviewPolicy.path(target),WorkspaceProvider.mime(PreviewPolicy.path(target)));return;}
+            if(MarkdownDocument.webLink(target)){activity.startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(target)));return;}
+            if(!workspace.isEmpty()&&!documentPath.isEmpty()){
+                String relative=PreviewPolicy.linkedPath(documentPath,target);preview(workspace,relative,WorkspaceProvider.mime(relative));return;
+            }
+            toast("이 링크는 앱에서 열 수 없습니다");
+        }catch(Exception e){toast("링크를 열 수 없습니다");}
     }
     private void open(String workspace,String path,String mime,boolean share){
         Uri uri=WorkspaceProvider.uri(workspace,path);Intent intent=new Intent(share?Intent.ACTION_SEND:Intent.ACTION_VIEW).setDataAndType(share?null:uri,mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);intent.setClipData(ClipData.newRawUri("파일",uri));if(share)intent.putExtra(Intent.EXTRA_STREAM,uri);
@@ -69,9 +100,12 @@ final class FileUi {
     }
     private void preview(String workspace,String path,String mime){preview(workspace,path,mime,()->true);}
     private void preview(String workspace,String path,String mime,java.util.function.BooleanSupplier visible){
-        boolean image=mime.startsWith("image/"),text=mime.startsWith("text/")||path.endsWith(".md")||path.endsWith(".json")||path.endsWith(".csv");if(!image&&!text){open(workspace,path,mime,false);return;}
+        String lower=path.toLowerCase(Locale.ROOT);boolean markdown=lower.endsWith(".md")||lower.endsWith(".markdown"),html=lower.endsWith(".html")||lower.endsWith(".htm")||mime.equals("text/html");
+        boolean image=mime.startsWith("image/"),text=markdown||html||mime.startsWith("text/")||path.endsWith(".md")||path.endsWith(".json")||path.endsWith(".csv");if(!image&&!text){open(workspace,path,mime,false);return;}
         final Object[] value={null};service.submit(()->{service.store.get(workspace);Path file=service.files.resolve(workspace,path);if(image){android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();options.inJustDecodeBounds=true;android.graphics.BitmapFactory.decodeFile(file.toString(),options);options.inSampleSize=1;while(Math.max(options.outWidth,options.outHeight)/options.inSampleSize>1600)options.inSampleSize*=2;options.inJustDecodeBounds=false;value[0]=android.graphics.BitmapFactory.decodeFile(file.toString(),options);if(value[0]==null)throw new IOException("PREVIEW_UNAVAILABLE");}else value[0]=service.files.read(workspace,path);},e->{
-            if(activity.isDestroyed()||!visible.getAsBoolean())return;if(e!=null){toast("미리보기를 지원하지 않습니다. 다른 앱으로 엽니다.");open(workspace,path,mime,false);return;}View view;
+            if(activity.isDestroyed()||!visible.getAsBoolean())return;if(e!=null){toast("미리보기를 지원하지 않습니다. 다른 앱으로 엽니다.");open(workspace,path,mime,false);return;}
+            if(markdown||html){if(document!=null)document.close();try{document=new DocumentPreview(activity,service,workspace,path,(String)value[0],html,url->link(workspace,path,url));document.show();}catch(Exception unavailable){toast("문서 미리보기를 열 수 없습니다");}return;}
+            View view;
             if(image){ImageView picture=new ImageView(activity);picture.setAdjustViewBounds(true);picture.setImageBitmap((android.graphics.Bitmap)value[0]);view=picture;}else{TextView content=new TextView(activity);content.setText((String)value[0]);content.setTextSize(17);content.setTextIsSelectable(true);content.setPadding(24,16,24,16);ScrollView scroll=new ScrollView(activity);scroll.addView(content);view=scroll;}
             new AlertDialog.Builder(activity).setTitle(new File(path).getName()).setView(view).setPositiveButton("닫기",null).setNeutralButton("다른 앱으로 열기",(d,n)->open(workspace,path,mime,false)).show();
         });

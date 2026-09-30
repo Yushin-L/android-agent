@@ -62,6 +62,7 @@ final class FileBrowser {
         dialog.setContentView(root);dialog.setOnDismissListener(d->{closed=true;generation++;if(folderDialog!=null)folderDialog.dismiss();});
         dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE|WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
     }
+    void reload(String workspace){if(owner.equals(workspace)&&showing())load(false);}
     void show(){dialog.show();Window window=dialog.getWindow();window.setBackgroundDrawable(new ColorDrawable(activity.fileColor("background")));window.setLayout(-1,-1);load(true);}
     boolean showing(){return !closed&&dialog.isShowing();}
     void close(){closed=true;generation++;if(folderDialog!=null)folderDialog.dismiss();dialog.dismiss();}
@@ -120,7 +121,7 @@ final class FileBrowser {
             h.name.setText(name);h.detail.setText(folder?"폴더":kind+" · "+FileUi.size(file.optLong("size")));
             h.picture.setImageDrawable(new Glyph(folder?"folder":mime.startsWith("image/")?"image":"file",activity.fileColor(folder?"accent":"muted")));
             h.primary.setContentDescription(name+" · "+h.detail.getText());h.primary.setOnClickListener(v->{if(folder)navigate(path);else open.open(owner,path);});
-            h.menu.setVisibility(folder?View.GONE:View.VISIBLE);h.menu.setContentDescription(name+" · 저장 및 공유");h.menu.setOnClickListener(v->actions.open(owner,path));return recycled;
+            h.menu.setVisibility(View.VISIBLE);h.menu.setContentDescription(name+(folder?" · 폴더 메뉴":" · 저장·공유·삭제"));h.menu.setOnClickListener(v->actions.open(owner,path));return recycled;
         }
     }
     private final class Holder {

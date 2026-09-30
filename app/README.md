@@ -12,10 +12,11 @@ docker build -t android-agent-builder app
 mkdir -p app/downloads
 curl --fail --location https://registry.npmjs.org/@mmmbuto/codex-cli-termux/-/codex-cli-termux-0.156.1-termux.1.tgz -o app/downloads/runtime.tgz
 python3 app/prepare_android_payload.py app/downloads/runtime.tgz
+python3 app/prepare_markdown.py
 docker run --rm --network none --user "$(id -u):$(id -g)" -v "$PWD/app:/work" android-agent-builder
 ```
 
-출력: `app/artifacts/android-agent-0.9.3-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
+출력: `app/artifacts/android-agent-0.10.0-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
 런타임 아카이브의 SHA-512를 검사한 뒤 APK용 helper 이름만 동일 길이로 교체한다.
 출처·원본/수정 SHA-256·패치 위치는 `assets/runtime-provenance.json`에 기록된다.
 Codex의 Apache-2.0 고지는 `assets/CODEX-LICENSE`, `CODEX-NOTICE`에 포함된다.
@@ -101,3 +102,14 @@ APK 빌드·리소스 링크·서명과 정적 검토 범위다. 실기기 키�
 
 
 0.9.3은 우상단 메뉴의 명령어 표기를 제거하고 48dp 행 기준·16sp 글꼴·16dp 좌우 여백으로 정돈한다. 채팅의 `/new`, `/resume`, `/model` 명령은 유지한다. APK 빌드 검증과 실기기 시각 확인을 구분하며 기록은 #35를 따른다.
+
+
+## 0.10.0: Markdown·문서 미리보기·파일 삭제
+
+에이전트 답변과 Markdown 파일은 CommonMark 0.24.0 및 GFM 표/취소선 확장으로 해석하고 네이티브 View로 표시한다. 제목·강조·목록·인용·링크·코드 복사와 표/코드 가로 스크롤을 제공한다. 코드 하이라이팅·수식·Mermaid는 포함하지 않는다. Markdown 이미지 문법은 자동 다운로드 대신 이미지 링크로 표시한다. 사용자 메시지와 실행 로그는 원문을 유지한다. 갱신은 100ms 단위로 모으고 파싱은 별도 스레드에서 수행하며 완료된 메시지 뷰를 재사용한다. 20만 자 초과는 안내와 함께 원문으로 표시한다.
+
+문서 미리보기에는 원문 전환을 제공한다. 기존 UTF-8 읽기 한계는 1MiB다. HTML은 JavaScript/폼/네트워크/file/content 접근을 막은 WebView에서 읽고, 검증한 같은 쓰레드의 CSS/이미지/폰트만 가상 HTTPS origin으로 제공한다. 외부 링크는 사용자 탭 시 브라우저로 연다. HTML 기반 앱 실행 기능은 아니다. 링크·리소스 정책 테스트와 Android WebView 실제 표시 검증은 구분한다.
+
+파일/폴더 더보기에서 삭제할 수 있다. 확인 창을 거쳐 하위 항목까지 삭제하며, 실행 중인 쓰레드와 파일 작업이 있으면 거부한다. 작업 폴더 루트/경로 탈출을 차단하고 하위 symlink 대상은 따라가지 않는다. 삭제 후 첨부 초안을 정리하며, 생성 이미지가 재개 시 자동으로 다시 복사되지 않도록 삭제 경로를 저장한다. 부분 실패는 남은 목록을 확인하도록 표시한다. 외부 사본과 Codex 원본 기록은 유지한다.
+
+의존성은 `markdown-dependencies.json`의 버전·SHA-256으로 고정하며 `prepare_markdown.py`로 준비한다. 오프라인 빌드는 무결성 검사를 통과해야 한다. 바이너리는 downloads에만 두고 Git에서 제외하며 BSD-2-Clause 고지는 `assets/COMMONMARK-LICENSE`에 포함한다. `DocumentFeaturesTest`는 Markdown 구문/불완전 스트림, URL/로컬 경계, 삭제/초안 정리/삭제 경로 지속성을 검증한다. 실제 Android 렌더링·복사·WebView·터치·큰 글씨는 별도 실기기 확인 대상이다.

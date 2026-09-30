@@ -55,6 +55,15 @@ public final class WorkspaceFiles {
             }finally{c.disconnect();}
         }throw new IOException("DOWNLOAD_REDIRECT_LIMIT");
     }
+    public synchronized void deleteEntry(String id,String name)throws Exception{
+        Path workspace=root(id),target=resolve(id,name);if(target.equals(workspace))throw new IOException("WORKSPACE_ROOT_DELETE_DENIED");
+        if(!Files.exists(target,LinkOption.NOFOLLOW_LINKS))throw new IOException("FILE_NOT_FOUND");
+        // Default walk does not follow symbolic links, including links nested in a folder.
+        Files.walkFileTree(target,new SimpleFileVisitor<Path>(){
+            @Override public FileVisitResult visitFile(Path file,java.nio.file.attribute.BasicFileAttributes attrs)throws IOException{Files.delete(file);return FileVisitResult.CONTINUE;}
+            @Override public FileVisitResult postVisitDirectory(Path folder,IOException failure)throws IOException{if(failure!=null)throw failure;Files.delete(folder);return FileVisitResult.CONTINUE;}
+        });
+    }
     public void delete(String id)throws Exception{Path root=root(id);try(java.util.stream.Stream<Path> walk=Files.walk(root)){for(Path p:(Iterable<Path>)walk.sorted(Comparator.reverseOrder())::iterator)Files.delete(p);}}
     public static JSONArray specs()throws Exception{
         JSONArray a=new JSONArray();

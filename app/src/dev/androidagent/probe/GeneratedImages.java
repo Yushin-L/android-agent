@@ -9,6 +9,11 @@ import org.json.*;
 public final class GeneratedImages {
     private final WorkspaceFiles files;private final Path home;
     public GeneratedImages(WorkspaceFiles files,Path home){this.files=files;this.home=home.toAbsolutePath().normalize();}
+    public String destination(String owner,String thread,JSONObject item)throws Exception{
+        Path source=Paths.get(item.optString("savedPath")).toAbsolutePath().normalize(),root=files.root(owner);
+        if(source.startsWith(root))return root.relativize(source).toString();
+        return "generated-"+hex(MessageDigest.getInstance("SHA-256").digest((thread+":"+item.getString("id")).getBytes(java.nio.charset.StandardCharsets.UTF_8))).substring(0,24)+".png";
+    }
     public JSONObject retain(String owner,String thread,JSONObject item)throws Exception{
         if(!"completed".equals(item.optString("status")))throw new IOException("IMAGE_NOT_COMPLETED");
         String saved=item.optString("savedPath");if(saved.isEmpty())throw new IOException("IMAGE_PATH_UNAVAILABLE");
@@ -17,7 +22,7 @@ public final class GeneratedImages {
         Path allowed=home.resolve("generated_images").resolve(thread.replaceAll("[^a-zA-Z0-9_-]","_"));
         if(!source.startsWith(allowed)||!Files.isRegularFile(source)||Files.size(source)>WorkspaceFiles.MAX_BYTES)throw new IOException("IMAGE_PATH_UNAVAILABLE");
         Path part=home;for(Path segment:home.relativize(source)){part=part.resolve(segment);if(Files.isSymbolicLink(part))throw new IOException("INVALID_IMAGE_PATH");}
-        String name="generated-"+hex(MessageDigest.getInstance("SHA-256").digest((thread+":"+item.getString("id")).getBytes(java.nio.charset.StandardCharsets.UTF_8))).substring(0,24)+".png";
+        String name=destination(owner,thread,item);
         Path destination=files.resolve(owner,name);
         if(Files.exists(destination)){if(!java.util.Arrays.equals(digest(source),digest(destination)))throw new IOException("IMAGE_NAME_CONFLICT");return files.info(owner,destination);}
         try(InputStream in=Files.newInputStream(source)){return files.copyIn(owner,name,in,()->false);}

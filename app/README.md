@@ -16,7 +16,7 @@ python3 app/prepare_markdown.py
 docker run --rm --network none --user "$(id -u):$(id -g)" -v "$PWD/app:/work" android-agent-builder
 ```
 
-출력: `app/artifacts/android-agent-0.11.0-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
+출력: `app/artifacts/android-agent-0.11.1-arm64.apk`. 빌드 과정에서 로컬 개발 서명키를 만든다.
 런타임 아카이브의 SHA-512를 검사한 뒤 APK용 helper 이름만 동일 길이로 교체한다.
 출처·원본/수정 SHA-256·패치 위치는 `assets/runtime-provenance.json`에 기록된다.
 Codex의 Apache-2.0 고지는 `assets/CODEX-LICENSE`, `CODEX-NOTICE`에 포함된다.
@@ -125,3 +125,7 @@ APK 빌드·리소스 링크·서명과 정적 검토 범위다. 실기기 키�
 ## 0.11.0: 앱 피드백 접수
 
 설정에서 일회용 코드로 피드백 서버를 연결한다. 새 대화에서 명시적으로 접수를 요청하면 submit_app_feedback 도구가 전송 내용을 확인받고 서버에 전달한다. 기본 포함 정보는 앱·Android 버전이며 대화/파일/로그 자동 첨부는 없다. 성공한 경우에만 피드백 접수 번호를 돌려준다. 접수 목록과 개발 측 질문·배포 안내를 조회하고 텍스트 답변을 보낼 수 있다. 자동 수정·배포·푸시 알림은 포함하지 않는다. GitHub 로그인은 폰에서 필요하지 않다. API는 전용 TLS 인증서를 사용하는 독립 HTTPS 연결이며 기존 ChatGPT 로그인에는 영향을 주지 않는다.
+
+## 0.11.1: 사용자 메시지 구분
+
+사용자 메시지를 오른쪽 민트색 말풍선으로 표시하고 에이전트의 왼쪽 Markdown 본문과 구분한다. 말풍선은 가용 폭 86% 이하이며 본문 17sp/27sp와 선택·복사를 유지한다. 라이트/다크 및 가용 폭 변경에 대응한다. 구현 기록: [#43](https://github.com/Yushin-L/android-agent/issues/43).

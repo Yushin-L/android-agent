@@ -304,7 +304,17 @@ public final class AgentActivity extends Activity {
                     else if(type.equals("imageGeneration"))value="이미지 생성 · "+item.optString("status")+(item.has("fileError")?"\n"+item.optString("fileError"):"");
                     else value=(item.optString("tool","도구"))+" · "+(item.optBoolean("success")?"완료":item.optString("status"));
                     TextView message=text(value.trim(),type.endsWith("Message")?17:14);message.setTextIsSelectable(true);message.setLineSpacing(0,1f);message.setLineHeight(Math.round(android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,27,getResources().getDisplayMetrics())));message.setPadding(dp(12),dp(12),dp(12),dp(12));
-                    if(type.equals("userMessage")){GradientDrawable shape=new GradientDrawable();shape.setColor(surface);shape.setCornerRadius(dp(12));message.setBackground(shape);}target.addView(message);
+                    if(type.equals("userMessage")){
+                        boolean dark=(getResources().getConfiguration().uiMode&android.content.res.Configuration.UI_MODE_NIGHT_MASK)==android.content.res.Configuration.UI_MODE_NIGHT_YES;
+                        GradientDrawable shape=new GradientDrawable();shape.setColor(dark?0xff294838:0xffdcefe3);shape.setCornerRadius(dp(18));message.setBackground(shape);
+                        message.setPadding(dp(16),dp(12),dp(16),dp(12));message.setGravity(Gravity.START);message.setContentDescription("내 메시지 · "+value.trim());
+                        FrameLayout row=new FrameLayout(this){@Override protected void onMeasure(int widthSpec,int heightSpec){
+                            int width=View.MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight();
+                            message.setMaxWidth(Math.max(1,Math.round(width*0.86f)));super.onMeasure(widthSpec,heightSpec);
+                        }};
+                        FrameLayout.LayoutParams bubble=new FrameLayout.LayoutParams(-2,-2,Gravity.END);row.addView(message,bubble);
+                        LinearLayout.LayoutParams spacing=new LinearLayout.LayoutParams(-1,-2);spacing.topMargin=dp(8);spacing.bottomMargin=dp(12);target.addView(row,spacing);
+                    }else target.addView(message);
                     if(type.equals("imageGeneration")&&item.optJSONObject("workspaceFile")!=null){JSONObject file=item.getJSONObject("workspaceFile");String path=file.getString("path"),owner=workspace;button(target,"이미지 · "+path,()->fileUi.actions(owner,path));}
                     if(type.equals("fileChange")){String owner=workspace;button(target,"쓰레드 파일 보기",()->fileUi.browse(owner,""));}
                     if(type.equals("dynamicToolCall")&&item.optBoolean("success")){
@@ -389,7 +399,7 @@ public final class AgentActivity extends Activity {
         button(body,"ChatGPT 로그인",()->login(false));button(body,"기기 코드로 로그인",()->login(true));
         button(body,"계정 새로고침",()->service.submit(service::refreshAccount,e->{if(e!=null)toast("계정 확인 실패");render();}));
         button(body,"로그아웃",()->service.submit(service::logout,e->{if(e!=null)toast("진행 중인 대화를 마친 뒤 다시 시도해 주세요");render();}));
-        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.11.0\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\",\"shellProbe\":\""+service.shellProbe+"\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
+        button(body,"진단 정보 복사",()->{String report="{\"appVersion\":\"0.11.1\",\"androidApi\":"+Build.VERSION.SDK_INT+",\"runtime\":\"0.156.1-termux.1\",\"shellProbe\":\""+service.shellProbe+"\"}";((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Android Agent 진단",report));toast("계정·대화 내용을 제외한 진단을 복사했습니다");});
     }
     private void login(boolean device){service.submit(()->service.login(device),e->{if(e!=null){toast("로그인을 시작하지 못했습니다");return;}if(!service.loginCode.isEmpty())new AlertDialog.Builder(this).setTitle("로그인 코드").setMessage(service.loginCode).setPositiveButton("복사",(d,n)->((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("로그인 코드",service.loginCode))).show();try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(service.loginUrl)));}catch(Exception ex){toast("브라우저를 열지 못했습니다");}});}
     private void rememberLocation(){if(!workspace.isEmpty())getSharedPreferences("navigation",0).edit().putString("workspace",workspace).putString("session",session).apply();}
